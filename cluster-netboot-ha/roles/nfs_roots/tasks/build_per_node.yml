@@ -1,0 +1,52 @@
+---
+- name: Create root dir
+  ansible.builtin.file:
+    path: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}"
+    state: directory
+
+- name: Rsync base rootfs
+  ansible.builtin.synchronize:
+    src: "{{ work_dir }}/mnt_root/"
+    dest: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}/"
+    recursive: yes
+
+- name: Ensure /boot dir exists in node root
+  ansible.builtin.file:
+    path: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}/boot"
+    state: directory
+
+- name: TFTP subdir for node
+  ansible.builtin.file:
+    path: "{{ tftp_root }}/{{ hostvars[node].mac | lower | replace(':','-') }}"
+    state: directory
+
+- name: Copy boot files into node TFTP dir
+  ansible.builtin.synchronize:
+    src: "{{ work_dir }}/firmware-master/boot/"
+    dest: "{{ tftp_root }}/{{ hostvars[node].mac | lower | replace(':','-') }}/"
+    recursive: yes
+
+- name: Set hostname
+  ansible.builtin.copy:
+    dest: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}/etc/hostname"
+    content: "{{ hostvars[node].hostname }}\n"
+
+- name: Update /etc/hosts
+  ansible.builtin.lineinfile:
+    path: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}/etc/hosts"
+    regexp: '^127\.0\.1\.1\s+'
+    line: "127.0.1.1\t{{ hostvars[node].hostname }}"
+
+- name: RAM tmpfs for /var/log and /tmp
+  ansible.builtin.blockinfile:
+    path: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}/etc/fstab"
+    block: |
+      tmpfs /var/log tmpfs defaults,noatime,nosuid,size={{ tmpfs_var_log_size }} 0 0
+      tmpfs /tmp     tmpfs defaults,noatime,nosuid,size={{ tmpfs_tmp_size }}     0 0
+
+- name: Write per-node cmdline.txt (NFS root)
+  ansible.builtin.template:
+    src: cmdline.txt.j2
+    dest: "{{ tftp_root }}/{{ hostvars[node].mac | lower | replace(':','-') }}/cmdline.txt"
+  vars:
+    node_hostname: "{{ hostvars[node].hostname }}"
