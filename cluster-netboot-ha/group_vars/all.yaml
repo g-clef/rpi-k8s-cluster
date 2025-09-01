@@ -1,11 +1,11 @@
 net_iface: eth0
 lan_cidr: 192.168.1.0/24
 router_ip: 192.168.1.1
-dns_servers: 1.1.1.1,8.8.8.8
-dhcp_start: 192.168.1.50
-dhcp_end: 192.168.1.200
+dns_servers: 192.168.1.1,50.116.35.168
+dhcp_start: 192.168.1.51
+dhcp_end: 192.168.1.150
 
-nas_ip: 192.168.1.100
+nas_ip: 192.168.1.197
 nas_export_path: /volume1/nfsroot
 local_nas_mount: /mnt/nfsroot
 per_node_root_base: "{{ local_nas_mount }}/roots"
@@ -23,7 +23,7 @@ tmpfs_var_log_size: 64m
 tmpfs_tmp_size: 256m
 
 pi_default_labels:
-  role: honeypot
+  role: worker
   arch: arm64
 
 gpu_node_hostname: gpu01
