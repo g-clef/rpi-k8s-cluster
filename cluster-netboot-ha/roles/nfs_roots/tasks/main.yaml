@@ -3,8 +3,8 @@
   get_url:
     url: "{{ raspios_url }}"
     dest: "{{ work_dir }}/raspios.zip"
-    mode: '0644'
-  args: { creates: "{{ work_dir }}/raspios.zip" }
+    mode: "0644"
+    force: no  # don't re-download if present
 
 - name: Unzip OS image
   unarchive:
@@ -39,7 +39,6 @@
           | default(['8192'])
           | first
           | int) }}
-
     root_start: >-
       {{ (fdisk_out.stdout
           | regex_search('Linux\s+filesystem\s+\d+\s+(\d+)', multiline=True))
@@ -60,7 +59,7 @@
     path: "{{ work_dir }}/mnt_boot"
     src: "{{ img_path }}"
     fstype: vfat
-    opts: "loop,offset={{ boot_start|int * sector_size|int }}"
+    opts: "loop,offset={{ (boot_start | int) * (sector_size | int) }}"
     state: mounted
 
 - name: Mount root partition
@@ -68,58 +67,58 @@
     path: "{{ work_dir }}/mnt_root"
     src: "{{ img_path }}"
     fstype: ext4
-    opts: "loop,offset={{ root_start|int * sector_size|int }}"
+    opts: "loop,offset={{ (root_start | int) * (sector_size | int) }}"
     state: mounted
 
 - name: Ensure per-node base dir on Synology
   file:
     path: "{{ per_node_root_base }}"
     state: directory
-    mode: '0755'
+    mode: "0755"
 
 - name: Build per-node roots and TFTP subdirs
   block:
     - name: Create root dir
       file:
-        path: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}"
+        path: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}"
         state: directory
 
     - name: Rsync base rootfs
       synchronize:
         src: "{{ work_dir }}/mnt_root/"
-        dest: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/"
+        dest: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}/"
         recursive: yes
 
     - name: Ensure /boot dir exists in root (for completeness)
       file:
-        path: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/boot"
+        path: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}/boot"
         state: directory
 
     - name: TFTP subdir for node
       file:
-        path: "{{ tftp_root }}/{{ hostvars[item].mac | lower | replace(':','-') }}"
+        path: "{{ tftp_root }}/{{ hostvars[node].mac | lower | replace(':','-') }}"
         state: directory
 
     - name: Copy boot files into node TFTP dir
       synchronize:
         src: "{{ work_dir }}/firmware-master/boot/"
-        dest: "{{ tftp_root }}/{{ hostvars[item].mac | lower | replace(':','-') }}/"
+        dest: "{{ tftp_root }}/{{ hostvars[node].mac | lower | replace(':','-') }}/"
         recursive: yes
 
     - name: Set hostname
       copy:
-        dest: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/etc/hostname"
-        content: "{{ hostvars[item].hostname }}\n"
+        dest: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}/etc/hostname"
+        content: "{{ hostvars[node].hostname }}\n"
 
     - name: Update /etc/hosts
       lineinfile:
-        path: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/etc/hosts"
+        path: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}/etc/hosts"
         regexp: '^127\.0\.1\.1\s+'
-        line: "127.0.1.1\t{{ hostvars[item].hostname }}"
+        line: "127.0.1.1\t{{ hostvars[node].hostname }}"
 
     - name: RAM tmpfs for /var/log and /tmp
       blockinfile:
-        path: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/etc/fstab"
+        path: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}/etc/fstab"
         block: |
           tmpfs /var/log tmpfs defaults,noatime,nosuid,size={{ tmpfs_var_log_size }} 0 0
           tmpfs /tmp     tmpfs defaults,noatime,nosuid,size={{ tmpfs_tmp_size }}     0 0
@@ -127,12 +126,13 @@
     - name: Write per-node cmdline.txt (NFS root)
       template:
         src: cmdline.txt.j2
-        dest: "{{ tftp_root }}/{{ hostvars[item].mac | lower | replace(':','-') }}/cmdline.txt"
+        dest: "{{ tftp_root }}/{{ hostvars[node].mac | lower | replace(':','-') }}/cmdline.txt"
       vars:
-        node_hostname: "{{ hostvars[item].hostname }}"
+        node_hostname: "{{ hostvars[node].hostname }}"
   loop: "{{ groups['pi_servers'] + groups['pi_agents'] }}"
   loop_control:
-    label: "{{ hostvars[item].hostname }}"
+    loop_var: node
+    label: "{{ hostvars[node].hostname }}"
 
 - name: Unmount loop mounts
   mount:
