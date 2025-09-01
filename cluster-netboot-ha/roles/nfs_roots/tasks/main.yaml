@@ -61,13 +61,11 @@
 - name: Derive archive and image names
   ansible.builtin.set_fact:
     raspios_archive: "{{ raspios_url | basename }}"
-    raspios_img: >-
-      {{
-        (raspios_url | basename)
-        | regex_replace('\\.img\\.xz$', '.img')   # common case
-        | regex_replace('\\.xz$', '')             # fallback: any .xz
-        | regex_replace('\\.zip$', '')            # legacy .zip contains .img
-      }}
+    raspios_img: '{{ (raspios_url | basename)
+                     | regex_replace("\\.img\\.xz$", ".img")
+                     | regex_replace("\\.xz$", "")
+                     | regex_replace("\\.zip$", "") }}'
+
 
 # Unpack legacy .zip archives
 - name: Unpack ZIP → IMG (legacy images)
