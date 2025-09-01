@@ -30,13 +30,18 @@
     state: present
   become: true
 
-- name: Download Raspberry Pi OS image
+- name: Download Raspberry Pi OS image (patient + retries)
   ansible.builtin.get_url:
     url: "{{ raspios_url }}"
     dest: "{{ work_dir }}/{{ raspios_url | basename }}"
     mode: "0644"
     force: false
+    timeout: 1800          # 30 minutes read timeout per request
+    tmp_dest: "{{ work_dir }}"  # write temp file here (avoid small /tmp)
   register: raspios_dl
+  retries: 5
+  delay: 15
+  until: raspios_dl is succeeded
 
 - name: Detect downloaded file type
   ansible.builtin.command:
