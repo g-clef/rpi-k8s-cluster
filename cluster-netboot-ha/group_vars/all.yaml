@@ -6,7 +6,7 @@ dhcp_start: 192.168.1.51
 dhcp_end: 192.168.1.150
 
 nas_ip: 192.168.1.197
-nas_export_path: /volume1/nfsroot
+nas_export_path: /volume2/nfsroot
 local_nas_mount: /mnt/nfsroot
 per_node_root_base: "{{ local_nas_mount }}/roots"
 
