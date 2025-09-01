@@ -37,8 +37,8 @@
     dest: "{{ work_dir }}/{{ raspios_url | basename }}"
     mode: "0644"
     force: false
-    timeout: 1800              # 30m per-request read timeout
-    tmp_dest: "{{ work_dir }}" # write temp file in same FS (if supported)
+    timeout: 1800
+    tmp_dest: "{{ work_dir }}"
   register: raspios_dl
   retries: 5
   delay: 15
@@ -57,59 +57,63 @@
       which suggests a bad URL or network/auth issue. Check raspios_url.
   when: raspios_mime.stdout in ['text/html', 'text/plain']
 
-# Work out names for .xz and expected .img
+# Compute archive and the **intended** image path
 - name: Derive archive and image names
   ansible.builtin.set_fact:
     raspios_archive: "{{ raspios_url | basename }}"
-    raspios_img: "{{ (raspios_url | basename) | regex_replace('\\.xz$', '') }}"
+    raspios_img: >-
+      {{
+        (raspios_url | basename)
+        | regex_replace('\\.img\\.xz$', '.img')   # common case
+        | regex_replace('\\.xz$', '')             # fallback: any .xz
+        | regex_replace('\\.zip$', '')            # legacy .zip contains .img
+      }}
 
-# Handle legacy .zip -> .img
+# Unpack legacy .zip archives
 - name: Unpack ZIP → IMG (legacy images)
   ansible.builtin.unarchive:
     src: "{{ work_dir }}/{{ raspios_archive }}"
     dest: "{{ work_dir }}"
     remote_src: true
-  when: raspios_archive is match('\\.zip$')
+  when: raspios_mime.stdout in ['application/zip']
 
-# For .img.xz, only unxz if .img isn't already present (idempotent)
-- name: Check if IMG already exists (from previous run)
+# Unpack .xz archives (keep archive; write explicit img)
+- name: Check if IMG already exists (idempotent)
   ansible.builtin.stat:
     path: "{{ work_dir }}/{{ raspios_img }}"
   register: raspios_img_stat
-  when: raspios_archive is match('\\.xz$')
 
-- name: Unpack XZ → IMG (current images, on demand)
-  ansible.builtin.command:
-    cmd: "unxz -T0 -f {{ work_dir }}/{{ raspios_archive }}"
-    chdir: "{{ work_dir }}"
+- name: Extract XZ → IMG (deterministic, keep archive)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    xz -tv "{{ work_dir }}/{{ raspios_archive }}" 1>/dev/null
+    xz -dc "{{ work_dir }}/{{ raspios_archive }}" > "{{ work_dir }}/{{ raspios_img }}"
+  args:
+    executable: /bin/bash
   when:
-    - raspios_archive is match('\\.xz$')
-    - not raspios_img_stat.stat.exists | default(false)
+    - raspios_mime.stdout in ['application/x-xz', 'application/octet-stream']
+    - not raspios_img_stat.stat.exists
+  register: xz_extract
 
-# Verify that we now have an .img
+# Verify that we now have a plausible .img (size > 100 MB)
 - name: Stat extracted IMG
   ansible.builtin.stat:
     path: "{{ work_dir }}/{{ raspios_img }}"
   register: raspios_img_after
 
-# If no .img, try to diagnose the archive and fail helpfully
-- name: Diagnose archive if IMG missing (xz -tv)
-  ansible.builtin.command:
-    cmd: "xz -tv {{ work_dir }}/{{ raspios_archive }}"
-  register: xz_verify
-  changed_when: false
-  failed_when: false
-  when:
-    - raspios_archive is match('\\.xz$')
-    - not raspios_img_after.stat.exists
-
-- name: Fail if no .img found after extraction
+- name: Fail if no .img found or file looks too small
   ansible.builtin.fail:
     msg: >-
-      No .img file found in {{ work_dir }} after unpacking {{ raspios_archive }}.
-      xz -tv output:
-      {{ (xz_verify.stdout | default('')) + (xz_verify.stderr | default('')) }}
-  when: not raspios_img_after.stat.exists
+      Expected IMG at {{ work_dir }}/{{ raspios_img }} after unpacking {{ raspios_archive }},
+      but it was {{ 'missing' if not raspios_img_after.stat.exists else (raspios_img_after.stat.size ~ ' bytes') }}.
+      Archive MIME: {{ raspios_mime.stdout }}.
+      If this is an .xz, try manually: xz -tv {{ work_dir }}/{{ raspios_archive }}
+  when: (not raspios_img_after.stat.exists) or (raspios_img_after.stat.size | int < 100*1024*1024)
+
+- name: Set image path
+  ansible.builtin.set_fact:
+    img_path: "{{ work_dir }}/{{ raspios_img }}"
+
 
 # img_path is now known explicitly
 - name: Set image path
