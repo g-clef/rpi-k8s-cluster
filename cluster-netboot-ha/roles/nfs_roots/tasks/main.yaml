@@ -1,7 +1,7 @@
 ---
 # roles/nfs_roots/tasks/main.yaml
 
-# Expected vars (e.g., in group_vars/all.yml or role defaults):
+# Expected vars (e.g., group_vars/all.yml or role defaults):
 # work_dir: /srv/rpi-build
 # raspios_url: "https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-11-19/2024-11-19-raspios-bookworm-arm64-lite.img.xz"
 # per_node_root_base: /srv/nfs-roots
@@ -21,12 +21,13 @@
     - "{{ work_dir }}/mnt_root"
   become: true
 
-- name: Ensure archive tools are present
+- name: Ensure required tools are present
   ansible.builtin.package:
     name:
       - unzip
       - xz-utils
       - file
+      - rsync
     state: present
   become: true
 
@@ -36,8 +37,8 @@
     dest: "{{ work_dir }}/{{ raspios_url | basename }}"
     mode: "0644"
     force: false
-    timeout: 1800          # 30 minutes read timeout per request
-    tmp_dest: "{{ work_dir }}"  # write temp file here (avoid small /tmp)
+    timeout: 1800              # 30m per-request read timeout
+    tmp_dest: "{{ work_dir }}" # write temp file in same FS (if supported)
   register: raspios_dl
   retries: 5
   delay: 15
@@ -56,33 +57,64 @@
       which suggests a bad URL or network/auth issue. Check raspios_url.
   when: raspios_mime.stdout in ['text/html', 'text/plain']
 
+# Work out names for .xz and expected .img
+- name: Derive archive and image names
+  ansible.builtin.set_fact:
+    raspios_archive: "{{ raspios_url | basename }}"
+    raspios_img: "{{ (raspios_url | basename) | regex_replace('\\.xz$', '') }}"
+
+# Handle legacy .zip -> .img
 - name: Unpack ZIP → IMG (legacy images)
   ansible.builtin.unarchive:
-    src: "{{ work_dir }}/{{ raspios_url | basename }}"
+    src: "{{ work_dir }}/{{ raspios_archive }}"
     dest: "{{ work_dir }}"
     remote_src: true
-  when: raspios_url is match('\.zip$')
+  when: raspios_archive is match('\\.zip$')
 
-- name: Unpack XZ → IMG (current images)
+# For .img.xz, only unxz if .img isn't already present (idempotent)
+- name: Check if IMG already exists (from previous run)
+  ansible.builtin.stat:
+    path: "{{ work_dir }}/{{ raspios_img }}"
+  register: raspios_img_stat
+  when: raspios_archive is match('\\.xz$')
+
+- name: Unpack XZ → IMG (current images, on demand)
   ansible.builtin.command:
-    cmd: "unxz -f {{ work_dir }}/{{ raspios_url | basename }}"
+    cmd: "unxz -T0 -f {{ work_dir }}/{{ raspios_archive }}"
     chdir: "{{ work_dir }}"
-  when: raspios_url is match('\.xz$')
+  when:
+    - raspios_archive is match('\\.xz$')
+    - not raspios_img_stat.stat.exists | default(false)
 
-- name: Find the extracted .img
-  ansible.builtin.find:
-    paths: "{{ work_dir }}"
-    patterns: "*.img"
-  register: img_find
+# Verify that we now have an .img
+- name: Stat extracted IMG
+  ansible.builtin.stat:
+    path: "{{ work_dir }}/{{ raspios_img }}"
+  register: raspios_img_after
 
-- name: Fail if no .img found
+# If no .img, try to diagnose the archive and fail helpfully
+- name: Diagnose archive if IMG missing (xz -tv)
+  ansible.builtin.command:
+    cmd: "xz -tv {{ work_dir }}/{{ raspios_archive }}"
+  register: xz_verify
+  changed_when: false
+  failed_when: false
+  when:
+    - raspios_archive is match('\\.xz$')
+    - not raspios_img_after.stat.exists
+
+- name: Fail if no .img found after extraction
   ansible.builtin.fail:
-    msg: "No .img file found in {{ work_dir }} after unpacking {{ raspios_url | basename }}"
-  when: (img_find.files | length) == 0
+    msg: >-
+      No .img file found in {{ work_dir }} after unpacking {{ raspios_archive }}.
+      xz -tv output:
+      {{ (xz_verify.stdout | default('')) + (xz_verify.stderr | default('')) }}
+  when: not raspios_img_after.stat.exists
 
-- name: Set image path (most recent)
+# img_path is now known explicitly
+- name: Set image path
   ansible.builtin.set_fact:
-    img_path: "{{ (img_find.files | sort(attribute='mtime'))[-1].path }}"
+    img_path: "{{ work_dir }}/{{ raspios_img }}"
 
 - name: Get partition table
   ansible.builtin.command:
@@ -93,7 +125,6 @@
 - name: Parse partition starts (with sane fallbacks)
   ansible.builtin.set_fact:
     sector_size: 512
-    # Match boot partition line containing W95/EFI and capture the start sector (col 2)
     boot_start: >-
       {{ (
           fdisk_out.stdout
@@ -107,7 +138,6 @@
           | int
         )
       }}
-    # Match Linux filesystem line and capture the start sector (col 2)
     root_start: >-
       {{ (
           fdisk_out.stdout
@@ -143,7 +173,7 @@
     mode: "0755"
   become: true
 
-# --- Per-node work (runs once per host in the two groups) ---
+# --- Per-node work ---
 - name: Build per-node roots and TFTP subdirs
   ansible.builtin.include_tasks: build_per_node.yml
   loop: "{{ (groups['pi_servers'] | default([])) + (groups['pi_agents'] | default([])) }}"
@@ -151,7 +181,7 @@
     loop_var: node
     label: "{{ hostvars[node].hostname | default(node) }}"
 
-# --- Cleanup mounts (always try to unmount) ---
+# --- Cleanup mounts ---
 - name: Unmount boot
   ansible.builtin.mount:
     path: "{{ work_dir }}/mnt_boot"
