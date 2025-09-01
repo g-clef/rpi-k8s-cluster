@@ -120,35 +120,55 @@
 
 - name: Get partition table
   ansible.builtin.command:
-    cmd: "fdisk -l {{ img_path }}"
+    cmd: "fdisk -l -o Device,Start,Type {{ img_path }}"
   register: fdisk_out
   changed_when: false
 
-- name: Parse partition starts (with sane fallbacks)
+# Optional: flip to 'true' once to see what fdisk actually prints on your box
+- name: Debug fdisk output (one-time)
+  ansible.builtin.debug:
+    var: fdisk_out.stdout
+  when: false
+
+- name: Parse partition starts (robust + safe fallbacks)
   ansible.builtin.set_fact:
     sector_size: 512
+
+    # Boot partition start sector:
+    # Look for a line like:
+    #   /path/image.imgp1   8192   EFI System
+    #   /path/image.imgp1   8192   W95 FAT32 (LBA)
+    #   /path/image.imgp1   8192   Microsoft basic data
     boot_start: >-
-      {{ (
+      {{
+        (
           fdisk_out.stdout
           | regex_search(
-              '^\s*' ~ (img_path | regex_escape) ~ '.*\n\s*'
-              ~ (img_path | regex_escape) ~ 'p*\s*\d+\s+(\d+)\s+\d+\s+\d+\s+.*(W95|EFI)',
-              multiline=True
+              '^' ~ (img_path | regex_escape) ~ 'p?\d+\s+(\d+)\s+.*(EFI System|W95 FAT32|Microsoft basic data|FAT)',
+              multiline=True, ignorecase=True
             )
-          | default(['8192'])
-          | first
+          | default([], true)        # if None → []
+          | first(default='8192')    # default to 8192 if still empty
           | int
         )
       }}
+
+    # Root partition start sector:
+    # Usually reported as "Linux filesystem"
     root_start: >-
-      {{ (
+      {{
+        (
           fdisk_out.stdout
-          | regex_search('Linux\s+filesystem\s+\d+\s+(\d+)', multiline=True)
-          | default(['532480'])
-          | first
+          | regex_search(
+              '^' ~ (img_path | regex_escape) ~ 'p?\d+\s+(\d+)\s+.*Linux filesystem',
+              multiline=True, ignorecase=True
+            )
+          | default([], true)
+          | first(default='532480')
           | int
         )
       }}
+
 
 - name: Mount boot partition from image
   ansible.builtin.mount:
