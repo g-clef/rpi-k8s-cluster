@@ -1,0 +1,30 @@
+net_iface: eth0
+lan_cidr: 192.168.1.0/24
+router_ip: 192.168.1.1
+dns_servers: 1.1.1.1,8.8.8.8
+dhcp_start: 192.168.1.50
+dhcp_end: 192.168.1.200
+
+nas_ip: 192.168.1.100
+nas_export_path: /volume1/nfsroot
+local_nas_mount: /mnt/nfsroot
+per_node_root_base: "{{ local_nas_mount }}/roots"
+
+tftp_root: /srv/tftp
+work_dir: /srv/rpi-build
+raspios_url: https://downloads.raspberrypi.com/raspios_lite_arm64_latest
+
+k3s_version: v1.29.7+k3s1
+cluster_token: "CHANGE_ME_TO_A_RANDOM_LONG_STRING"
+cluster_cidr: 10.42.0.0/16
+service_cidr: 10.43.0.0/16
+
+tmpfs_var_log_size: 64m
+tmpfs_tmp_size: 256m
+
+pi_default_labels:
+  role: honeypot
+  arch: arm64
+
+gpu_node_hostname: gpu01
+gpu_taint: "gpu=true:NoSchedule"

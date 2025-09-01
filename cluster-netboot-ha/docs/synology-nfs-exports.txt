@@ -1,0 +1,11 @@
+Synology NFS Export Example (add in DSM GUI):
+
+Shared Folder: nfsroot
+NFS Permissions:
+  - Host/IP: 192.168.1.0/24
+  - Privilege: Read/Write
+  - Squash: No mapping
+  - Security: sys
+
+Equivalent /etc/exports line if editing over SSH:
+/volume1/nfsroot 192.168.1.0/24(rw,sync,no_subtree_check,no_root_squash)

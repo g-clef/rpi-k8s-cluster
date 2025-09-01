@@ -1,0 +1,30 @@
+---
+- name: Install k3s-server unit for pi01 (cluster-init)
+  copy:
+    dest: "{{ per_node_root_base }}/pi01/etc/systemd/system/k3s-server.service"
+    content: "{{ lookup('template','k3s-server.service.first.j2') }}"
+
+- name: Install k3s-server unit for joining servers
+  copy:
+    dest: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/etc/systemd/system/k3s-server.service"
+    content: "{{ lookup('template','k3s-server.service.join.j2') }}"
+  loop: "{{ groups['pi_servers'] | difference(['pi01']) }}"
+  loop_control: { label: "{{ hostvars[item].hostname }}" }
+
+- name: Enable server units (create wants symlink)
+  file:
+    state: link
+    src: /etc/systemd/system/k3s-server.service
+    dest: "{{ per_node_root_base }}/{{ item }}/etc/systemd/system/multi-user.target.wants/k3s-server.service"
+  loop: "{{ groups['pi_servers'] }}"
+
+- name: Drop firstboot ops unit on pi01 (labels + Argo CD)
+  copy:
+    dest: "{{ per_node_root_base }}/pi01/etc/systemd/system/firstboot-ops.service"
+    content: "{{ lookup('template','firstboot-ops.service.j2') }}"
+
+- name: Enable firstboot ops on pi01
+  file:
+    state: link
+    src: /etc/systemd/system/firstboot-ops.service
+    dest: "{{ per_node_root_base }}/pi01/etc/systemd/system/multi-user.target.wants/firstboot-ops.service"

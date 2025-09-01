@@ -1,0 +1,16 @@
+[Unit]
+Description=k3s agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment="K3S_URL=https://pi01:6443"
+Environment="K3S_TOKEN={{ cluster_token }}"
+Environment="K3S_NODE_NAME=%H"
+ExecStart=/bin/sh -c 'curl -sfL https://get.k3s.io | sh -s - agent'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

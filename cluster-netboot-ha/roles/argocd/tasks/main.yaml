@@ -1,0 +1,6 @@
+---
+- name: Install Argo CD in argocd namespace
+  shell: |
+    /usr/local/bin/k3s kubectl create namespace argocd --dry-run=client -o yaml | /usr/local/bin/k3s kubectl apply -f -
+    /usr/local/bin/k3s kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+  changed_when: false

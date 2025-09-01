@@ -1,0 +1,57 @@
+---
+- name: Install PXE/TFTP prerequisites
+  apt:
+    name: [dnsmasq, tftpd-hpa, nfs-common, rsync, unzip, wget, fdisk, kpartx, parted]
+    state: present
+    update_cache: yes
+
+- name: Ensure dirs
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop: ["{{ tftp_root }}", "{{ work_dir }}", "{{ local_nas_mount }}"]
+
+- name: Mount Synology NFS share
+  mount:
+    src: "{{ nas_ip }}:{{ nas_export_path }}"
+    path: "{{ local_nas_mount }}"
+    fstype: nfs
+    opts: defaults
+    state: mounted
+
+- name: Download latest Raspberry Pi firmware (boot files)
+  get_url:
+    url: https://github.com/raspberrypi/firmware/archive/refs/heads/master.zip
+    dest: "{{ work_dir }}/rpi-fw.zip"
+    mode: '0644'
+
+- name: Extract firmware
+  unarchive:
+    src: "{{ work_dir }}/rpi-fw.zip"
+    dest: "{{ work_dir }}"
+    remote_src: yes
+
+- name: Sync /boot files to TFTP root
+  synchronize:
+    src: "{{ work_dir }}/firmware-master/boot/"
+    dest: "{{ tftp_root }}/"
+    recursive: yes
+
+- name: Render dnsmasq config
+  template:
+    src: dnsmasq.conf.j2
+    dest: /etc/dnsmasq.d/pi-netboot.conf
+    mode: '0644'
+  notify: Restart dnsmasq
+
+- name: Enable & start services
+  systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: yes
+  loop: [dnsmasq, tftpd-hpa]
+
+- name: Summary
+  debug:
+    msg: "PXE ready. TFTP={{ tftp_root }} ; NFS roots={{ per_node_root_base }}"

@@ -1,0 +1,14 @@
+---
+- name: Install k3s-agent unit for each worker
+  copy:
+    dest: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/etc/systemd/system/k3s-agent.service"
+    content: "{{ lookup('template','k3s-agent.service.j2') }}"
+  loop: "{{ groups['pi_agents'] }}"
+  loop_control: { label: "{{ hostvars[item].hostname }}" }
+
+- name: Enable agent units
+  file:
+    state: link
+    src: /etc/systemd/system/k3s-agent.service
+    dest: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/etc/systemd/system/multi-user.target.wants/k3s-agent.service"
+  loop: "{{ groups['pi_agents'] }}"

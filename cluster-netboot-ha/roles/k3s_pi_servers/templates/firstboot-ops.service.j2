@@ -1,0 +1,12 @@
+[Unit]
+Description=First-boot post-cluster tasks (labels + Argo CD + GPU taint)
+After=k3s.service
+Requires=k3s.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c '  set -e;   for i in $(seq 1 120); do /usr/local/bin/k3s kubectl get nodes && break || sleep 5; done;   echo "Labeling arm64 nodes...";   for n in $(/usr/local/bin/k3s kubectl get nodes -o name | sed "s#node/##"); do     arch=$(/usr/local/bin/k3s kubectl get node "$n" -o jsonpath="{.status.nodeInfo.architecture}");     if [ "$arch" = "arm64" ]; then       {% for k,v in pi_default_labels.items() %}       /usr/local/bin/k3s kubectl label node "$n" {{ k }}={{ v }} --overwrite || true;       {% endfor %}     fi;   done;   echo "Applying GPU taint (if node exists)...";   /usr/local/bin/k3s kubectl taint nodes {{ gpu_node_hostname }} {{ gpu_taint }} --overwrite || true;   echo "Installing Argo CD...";   /usr/local/bin/k3s kubectl create ns argocd --dry-run=client -o yaml | /usr/local/bin/k3s kubectl apply -f -;   /usr/local/bin/k3s kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml;   echo "Done."; '
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+---
+- name: Wait for API
+  shell: "kubectl get nodes"
+  register: nodes_out
+  retries: 30
+  delay: 5
+  until: nodes_out.rc == 0
+
+- name: Label arm64 nodes and taint GPU node
+  shell: |
+    set -e
+    for n in $(kubectl get nodes -o name | sed 's#node/##'); do
+      arch=$(kubectl get node "$n" -o jsonpath='{.status.nodeInfo.architecture}')
+      if [ "$arch" = "arm64" ]; then
+        {% for k,v in pi_default_labels.items() %}
+        kubectl label node "$n" {{ k }}={{ v }} --overwrite || true
+        {% endfor %}
+      fi
+    done
+    kubectl taint nodes {{ gpu_node_hostname }} {{ gpu_taint }} --overwrite || true

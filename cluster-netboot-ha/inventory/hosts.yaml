@@ -1,0 +1,20 @@
+all:
+  children:
+    pxe_vm:
+      hosts:
+        nas-vm:
+          ansible_host: 192.168.1.50
+          ansible_user: ubuntu
+    synology:
+      hosts:
+        syno:
+          ansible_host: 192.168.1.100
+    pi_servers:
+      hosts:
+        pi01: { mac: dc:a6:32:aa:bb:c1, ip: 192.168.1.101, hostname: pi01 }
+        pi02: { mac: dc:a6:32:aa:bb:c2, ip: 192.168.1.102, hostname: pi02 }
+        pi03: { mac: dc:a6:32:aa:bb:c3, ip: 192.168.1.103, hostname: pi03 }
+    pi_agents:
+      hosts:
+        pi04: { mac: dc:a6:32:aa:bb:c4, ip: 192.168.1.104, hostname: pi04 }
+        pi05: { mac: dc:a6:32:aa:bb:c5, ip: 192.168.1.105, hostname: pi05 }
