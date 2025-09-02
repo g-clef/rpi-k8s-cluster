@@ -1,28 +1,87 @@
 ---
 # roles/nfs_roots/tasks/build_per_node.yml
+# Requires vars set by main: base_root_dir, overlay_base_dir, work_dir, tftp_root
 
-- name: Create root dir
+- name: Compute node paths
+  ansible.builtin.set_fact:
+    node_name: "{{ hostvars[node].hostname }}"
+    node_mac_id: "{{ hostvars[node].mac | lower | replace(':','-') }}"
+    node_root: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}"
+    node_tftp: "{{ tftp_root }}/{{ hostvars[node].mac | lower | replace(':','-') }}"
+    node_upper: "{{ overlay_base_dir }}/{{ hostvars[node].hostname }}/upper"
+    node_work:  "{{ overlay_base_dir }}/{{ hostvars[node].hostname }}/work"
+
+- name: Prepare directories for overlay + export
   ansible.builtin.file:
-    path: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}"
+    path: "{{ item }}"
     state: directory
+    mode: "0755"
+  loop:
+    - "{{ node_root }}"   # overlay mountpoint (NFS will export this)
+    - "{{ node_upper }}"
+    - "{{ node_work }}"
+    - "{{ node_tftp }}"
   become: true
 
-- name: Rsync base rootfs (local on nas-vm, via sudo)
-  ansible.builtin.command: >
-    rsync -a --delete --numeric-ids
-    --exclude='/dev/*' --exclude='/proc/*' --exclude='/sys/*' --exclude='/run/*'
-    --out-format='<<CHANGED>>%i %n%L'
-    "{{ work_dir }}/mnt_root/"
-    "{{ per_node_root_base }}/{{ hostvars[node].hostname }}/"
-  register: rsync_root
-  changed_when: "'<<CHANGED>>' in rsync_root.stdout"
+# Make sure overlayfs module is present/enabled
+- name: Load overlayfs kernel module (no-fail if already loaded)
+  ansible.builtin.command: modprobe overlay
+  changed_when: false
+  failed_when: false
   become: true
 
-- name: Ensure /boot dir exists in node root
-  ansible.builtin.file:
-    path: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}/boot"
-    state: directory
+- name: Persist overlay module at boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/overlay.conf
+    content: "overlay\n"
+    mode: "0644"
   become: true
+
+# Persist overlay mount then mount it
+- name: Ensure overlay mount present in fstab
+  ansible.posix.mount:
+    path: "{{ node_root }}"
+    src: "overlay"
+    fstype: overlay
+    opts: "lowerdir={{ base_root_dir }},upperdir={{ node_upper }},workdir={{ node_work }}"
+    state: present
+  become: true
+
+- name: Mount overlay (lower=_base, upper per-node)
+  ansible.posix.mount:
+    path: "{{ node_root }}"
+    src: "overlay"
+    fstype: overlay
+    opts: "lowerdir={{ base_root_dir }},upperdir={{ node_upper }},workdir={{ node_work }}"
+    state: mounted
+  become: true
+
+# --- Per-node customizations go into the overlay (written to node_upper) ---
+
+- name: Set hostname
+  ansible.builtin.copy:
+    dest: "{{ node_root }}/etc/hostname"
+    content: "{{ node_name }}\n"
+    mode: "0644"
+  become: true
+
+- name: Update /etc/hosts
+  ansible.builtin.lineinfile:
+    path: "{{ node_root }}/etc/hosts"
+    regexp: '^127\.0\.1\.1\s+'
+    line: "127.0.1.1\t{{ node_name }}"
+    create: true
+  become: true
+
+- name: Add tmpfs entries to /etc/fstab
+  ansible.builtin.blockinfile:
+    path: "{{ node_root }}/etc/fstab"
+    block: |
+      tmpfs /var/log tmpfs defaults,noatime,nosuid,size={{ tmpfs_var_log_size }} 0 0
+      tmpfs /tmp     tmpfs defaults,noatime,nosuid,size={{ tmpfs_tmp_size }}     0 0
+  become: true
+
+# --- TFTP boot files: hard-link clone + unique cmdline.txt ---
 
 - name: Determine boot source directory
   ansible.builtin.set_fact:
@@ -38,49 +97,22 @@
     msg: "Boot files not found at {{ boot_src_dir }}. Ensure the firmware download/unpack step ran earlier."
   when: not boot_src_stat.stat.exists
 
-- name: TFTP subdir for node
-  ansible.builtin.file:
-    path: "{{ tftp_root }}/{{ hostvars[node].mac | lower | replace(':','-') }}"
-    state: directory
-    mode: "0755"
-  become: true
-
-- name: Copy boot files into node TFTP dir (local on nas-vm, via sudo)
+- name: Populate node TFTP dir (hard-link clone of boot files)
   ansible.builtin.command: >
     rsync -a --delete
+    --link-dest="{{ boot_src_dir }}/"
     --out-format='<<CHANGED>>%i %n%L'
     "{{ boot_src_dir }}/"
-    "{{ tftp_root }}/{{ hostvars[node].mac | lower | replace(':','-') }}/"
+    "{{ node_tftp }}/"
   register: rsync_boot
   changed_when: "'<<CHANGED>>' in rsync_boot.stdout"
-  become: true
-
-- name: Set hostname
-  ansible.builtin.copy:
-    dest: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}/etc/hostname"
-    content: "{{ hostvars[node].hostname }}\n"
-  become: true
-
-- name: Update /etc/hosts
-  ansible.builtin.lineinfile:
-    path: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}/etc/hosts"
-    regexp: '^127\.0\.1\.1\s+'
-    line: "127.0.1.1\t{{ hostvars[node].hostname }}"
-    create: true
-  become: true
-
-- name: RAM tmpfs for /var/log and /tmp
-  ansible.builtin.blockinfile:
-    path: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}/etc/fstab"
-    block: |
-      tmpfs /var/log tmpfs defaults,noatime,nosuid,size={{ tmpfs_var_log_size }} 0 0
-      tmpfs /tmp     tmpfs defaults,noatime,nosuid,size={{ tmpfs_tmp_size }}     0 0
   become: true
 
 - name: Write per-node cmdline.txt (NFS root)
   ansible.builtin.template:
     src: cmdline.txt.j2
-    dest: "{{ tftp_root }}/{{ hostvars[node].mac | lower | replace(':','-') }}/cmdline.txt"
+    dest: "{{ node_tftp }}/cmdline.txt"
+    mode: "0644"
   vars:
-    node_hostname: "{{ hostvars[node].hostname }}"
+    node_hostname: "{{ node_name }}"
   become: true

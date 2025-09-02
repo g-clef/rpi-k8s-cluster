@@ -1,14 +1,17 @@
 ---
 # roles/nfs_roots/tasks/main.yaml
+#
+# Expected vars (e.g., in group_vars/all.yml or role defaults):
+#   work_dir: /srv/rpi-build
+#   raspios_url: "https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-11-19/2024-11-19-raspios-bookworm-arm64-lite.img.xz"
+#   per_node_root_base: /mnt/nfsroot/roots
+#   tftp_root: /srv/tftp
+#   tmpfs_var_log_size: 64M
+#   tmpfs_tmp_size: 64M
+# Inventory groups:
+#   pi_servers, pi_agents   (each host must have: hostname, mac)
 
-# Expected vars (e.g., group_vars/all.yml or role defaults):
-# work_dir: /srv/rpi-build
-# raspios_url: "https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-11-19/2024-11-19-raspios-bookworm-arm64-lite.img.xz"
-# per_node_root_base: /srv/nfs-roots
-# tftp_root: /srv/tftp
-# tmpfs_var_log_size: 64M
-# tmpfs_tmp_size: 64M
-# Inventory groups: pi_servers, pi_agents (hosts must have vars: hostname, mac)
+# --- Prep: dirs & tools -------------------------------------------------------
 
 - name: Ensure working directories exist
   ansible.builtin.file:
@@ -28,8 +31,9 @@
       - xz-utils
       - file
       - rsync
-    state: present
   become: true
+
+# --- Download image (patient/retriable) ---------------------------------------
 
 - name: Download Raspberry Pi OS image (patient + retries)
   ansible.builtin.get_url:
@@ -37,7 +41,7 @@
     dest: "{{ work_dir }}/{{ raspios_url | basename }}"
     mode: "0644"
     force: false
-    timeout: 1800
+    timeout: 1800           # 30m socket read timeout
     tmp_dest: "{{ work_dir }}"
   register: raspios_dl
   retries: 5
@@ -57,8 +61,7 @@
       which suggests a bad URL or network/auth issue. Check raspios_url.
   when: raspios_mime.stdout in ['text/html', 'text/plain']
 
-
-# === Replace your old derive/unpack tasks with everything from here down to "Image ready" ===
+# --- Normalize names & extract to .img ----------------------------------------
 
 - name: Normalize archive + image names and img_path
   ansible.builtin.set_fact:
@@ -72,33 +75,16 @@
                  | regex_replace('\\.xz$', '')
                  | regex_replace('\\.zip$', '') }}"
 
-# --- ZIP path (legacy images) ---
+# Legacy ZIP case
 - name: Unpack ZIP → IMG (legacy images)
   ansible.builtin.unarchive:
     src: "{{ raspios_archive }}"
     dest: "{{ work_dir }}"
     remote_src: true
   when: raspios_mime.stdout == 'application/zip'
+  become: true
 
-# If the ZIP didn’t produce the expected filename, pick the newest .img
-- name: Use newest .img if expected name not present (ZIP case)
-  ansible.builtin.find:
-    paths: "{{ work_dir }}"
-    patterns: "*.img"
-  register: zip_img_find
-  when:
-    - raspios_mime.stdout == 'application/zip'
-    - not (img_path is exists)
-
-- name: Reset img_path to newest .img (ZIP case)
-  ansible.builtin.set_fact:
-    img_path: "{{ (zip_img_find.files | sort(attribute='mtime'))[-1].path }}"
-  when:
-    - raspios_mime.stdout == 'application/zip'
-    - zip_img_find.files | length > 0
-    - not (img_path is exists)
-
-# --- XZ path (current images) ---
+# Current XZ case
 - name: Extract .xz → .img if needed (keep archive; idempotent)
   ansible.builtin.shell: |
     set -euo pipefail
@@ -108,8 +94,8 @@
     executable: /bin/bash
     creates: "{{ raspios_img }}"
   when: raspios_mime.stdout in ['application/x-xz', 'application/octet-stream']
+  become: true
 
-# --- Verify we have a real uncompressed disk image ---
 - name: Verify extracted image looks sane
   ansible.builtin.command: file -b "{{ img_path }}"
   register: img_kind
@@ -123,57 +109,20 @@
   when: img_kind.stdout is search('XZ compressed data|text/html|text/plain') or
         img_kind.stdout is not search('DOS/MBR|partition|filesystem|disk image')
 
-# === Image ready ===
-- name: Set image path
-  ansible.builtin.set_fact:
-    img_path: "{{ raspios_img }}"
-
-
-
-# Extract start sectors with fdisk + awk (no Jinja regex needed)
-- name: Get boot start sector (EFI/W95/FAT types)
-  ansible.builtin.shell: |
-    set -euo pipefail
-    fdisk -l -o Device,Start,Type "{{ img_path }}" \
-    | awk 'BEGIN{IGNORECASE=1} /(EFI System|W95 FAT32|Microsoft basic data|FAT)/ { print $2; exit }'
-  args:
-    executable: /bin/bash
-  register: boot_start_raw
-  changed_when: false
-
-- name: Get root start sector (Linux filesystem)
-  ansible.builtin.shell: |
-    set -euo pipefail
-    fdisk -l -o Device,Start,Type "{{ img_path }}" \
-    | awk 'BEGIN{IGNORECASE=1} /Linux filesystem/ { print $2; exit }'
-  args:
-    executable: /bin/bash
-  register: root_start_raw
-  changed_when: false
-
-- name: Set sector size and apply safe defaults
-  ansible.builtin.set_fact:
-    sector_size: 512
-    boot_start: "{{ (boot_start_raw.stdout | trim | default('', true)) | default('8192', true) | int }}"
-    root_start: "{{ (root_start_raw.stdout | trim | default('', true)) | default('532480', true) | int }}"
-
-
-# --- Mount partitions via a single loop device with partition scan ---
+# --- Loop device with partition scan; mount p1/p2 -----------------------------
 
 - name: Create loop device with partition scan (-P)
-  become: true
-  ansible.builtin.command: "losetup -f --show -P {{ img_abs | default(img_path) }}"
+  ansible.builtin.command: "losetup -f --show -P {{ img_path }}"
   register: loopdev
   changed_when: true
-
-# udev needs a moment to create /dev/loopXp1, /dev/loopXp2
-- name: Settle udev
   become: true
+
+- name: Settle udev
   ansible.builtin.command: "udevadm settle"
   changed_when: false
-
-- name: Wait for partition device nodes to appear
   become: true
+
+- name: Wait for loop partition device nodes to appear
   ansible.builtin.stat:
     path: "{{ item }}"
   register: part_nodes
@@ -183,6 +132,7 @@
   loop:
     - "{{ loopdev.stdout }}p1"
     - "{{ loopdev.stdout }}p2"
+  become: true
 
 - name: Remember loop and partition devices
   ansible.builtin.set_fact:
@@ -191,52 +141,76 @@
     root_device: "{{ loopdev.stdout }}p2"
 
 - name: Mount boot partition (p1)
-  become: true
   ansible.posix.mount:
     path: "{{ work_dir }}/mnt_boot"
     src: "{{ boot_device }}"
     fstype: vfat
     state: mounted
+  become: true
 
 - name: Mount root partition (p2)
-  become: true
   ansible.posix.mount:
     path: "{{ work_dir }}/mnt_root"
     src: "{{ root_device }}"
     fstype: ext4
     state: mounted
-
-
-- name: Ensure per-node base dir exists
-  ansible.builtin.file:
-    path: "{{ per_node_root_base }}"
-    state: directory
-    mode: "0755"
   become: true
 
-# --- Per-node work ---
-- name: Build per-node roots and TFTP subdirs
+# --- Build shared read-only base & overlay layout -----------------------------
+
+- name: Define base + overlay directories
+  ansible.builtin.set_fact:
+    base_root_dir: "{{ per_node_root_base }}/_base"
+    overlay_base_dir: "{{ per_node_root_base }}/_overlay"
+
+- name: Ensure base and overlay base dirs exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ per_node_root_base }}"
+    - "{{ base_root_dir }}"
+    - "{{ overlay_base_dir }}"
+  become: true
+
+- name: Rsync image root → shared base (once)
+  ansible.builtin.command: >
+    rsync -a --delete --numeric-ids
+    --exclude='/dev/*' --exclude='/proc/*' --exclude='/sys/*' --exclude='/run/*'
+    --out-format='<<CHANGED>>%i %n%L'
+    "{{ work_dir }}/mnt_root/"
+    "{{ base_root_dir }}/"
+  register: rsync_base
+  changed_when: "'<<CHANGED>>' in rsync_base.stdout"
+  become: true
+  run_once: true
+
+# --- Per-node overlay + TFTP --------------------------------------------------
+
+- name: Build per-node roots and TFTP subdirs (overlayfs)
   ansible.builtin.include_tasks: build_per_node.yml
   loop: "{{ (groups['pi_servers'] | default([])) + (groups['pi_agents'] | default([])) }}"
   loop_control:
     loop_var: node
     label: "{{ hostvars[node].hostname | default(node) }}"
 
-# --- Cleanup mounts ---
+# --- Cleanup: unmount & detach loop ------------------------------------------
+
 - name: Unmount boot
-  ansible.builtin.mount:
+  ansible.posix.mount:
     path: "{{ work_dir }}/mnt_boot"
     state: unmounted
   become: true
 
 - name: Unmount root
-  ansible.builtin.mount:
+  ansible.posix.mount:
     path: "{{ work_dir }}/mnt_root"
     state: unmounted
   become: true
 
 - name: Detach loop device
-  become: true
   ansible.builtin.command: "losetup -d {{ loop_device }}"
   when: loop_device is defined
   changed_when: true
+  become: true
