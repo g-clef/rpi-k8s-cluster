@@ -11,12 +11,29 @@
   loop: "{{ groups['pi_servers'] | difference(['pi01']) }}"
   loop_control: { label: "{{ hostvars[item].hostname }}" }
 
-- name: Enable server units (create wants symlink)
-  file:
+# Ensure wants dir exists
+- name: Ensure server wants dir exists
+  ansible.builtin.file:
+    path: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/etc/systemd/system/multi-user.target.wants"
+    state: directory
+    mode: "0755"
+  loop: "{{ groups['pi_servers'] | default([]) }}"
+  loop_control:
+    label: "{{ hostvars[item].hostname }}"
+  become: true
+
+# Create symlink to k3s.service (relative within the node root)
+- name: Enable k3s server unit (create wants symlink)
+  ansible.builtin.file:
     state: link
-    src: /etc/systemd/system/k3s-server.service
-    dest: "{{ per_node_root_base }}/{{ item }}/etc/systemd/system/multi-user.target.wants/k3s-server.service"
-  loop: "{{ groups['pi_servers'] }}"
+    path: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/etc/systemd/system/multi-user.target.wants/k3s.service"
+    src: "../k3s.service"
+    force: true
+  loop: "{{ groups['pi_servers'] | default([]) }}"
+  loop_control:
+    label: "{{ hostvars[item].hostname }}"
+  become: true
+
 
 - name: Drop firstboot ops unit on pi01 (labels + Argo CD)
   copy:

@@ -6,9 +6,26 @@
   loop: "{{ groups['pi_agents'] }}"
   loop_control: { label: "{{ hostvars[item].hostname }}" }
 
-- name: Enable agent units
-  file:
+# Ensure wants dir exists
+- name: Ensure agent wants dir exists
+  ansible.builtin.file:
+    path: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/etc/systemd/system/multi-user.target.wants"
+    state: directory
+    mode: "0755"
+  loop: "{{ groups['pi_agents'] | default([]) }}"
+  loop_control:
+    label: "{{ hostvars[item].hostname }}"
+  become: true
+
+# Create symlink to k3s-agent.service (relative)
+- name: Enable k3s agent unit (create wants symlink)
+  ansible.builtin.file:
     state: link
-    src: /etc/systemd/system/k3s-agent.service
-    dest: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/etc/systemd/system/multi-user.target.wants/k3s-agent.service"
-  loop: "{{ groups['pi_agents'] }}"
+    path: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/etc/systemd/system/multi-user.target.wants/k3s-agent.service"
+    src: "../k3s-agent.service"
+    force: true
+  loop: "{{ groups['pi_agents'] | default([]) }}"
+  loop_control:
+    label: "{{ hostvars[item].hostname }}"
+  become: true
+
