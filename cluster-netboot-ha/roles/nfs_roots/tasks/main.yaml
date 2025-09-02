@@ -158,24 +158,54 @@
     root_start: "{{ (root_start_raw.stdout | trim | default('', true)) | default('532480', true) | int }}"
 
 
+# --- Mount partitions via a single loop device with partition scan ---
 
-- name: Mount boot partition from image
-  ansible.builtin.mount:
+- name: Create loop device with partition scan (-P)
+  become: true
+  ansible.builtin.command: "losetup -f --show -P {{ img_abs | default(img_path) }}"
+  register: loopdev
+  changed_when: true
+
+# udev needs a moment to create /dev/loopXp1, /dev/loopXp2
+- name: Settle udev
+  become: true
+  ansible.builtin.command: "udevadm settle"
+  changed_when: false
+
+- name: Wait for partition device nodes to appear
+  become: true
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: part_nodes
+  until: part_nodes.stat.exists
+  retries: 10
+  delay: 1
+  loop:
+    - "{{ loopdev.stdout }}p1"
+    - "{{ loopdev.stdout }}p2"
+
+- name: Remember loop and partition devices
+  ansible.builtin.set_fact:
+    loop_device: "{{ loopdev.stdout }}"
+    boot_device: "{{ loopdev.stdout }}p1"
+    root_device: "{{ loopdev.stdout }}p2"
+
+- name: Mount boot partition (p1)
+  become: true
+  ansible.posix.mount:
     path: "{{ work_dir }}/mnt_boot"
-    src: "{{ img_path }}"
+    src: "{{ boot_device }}"
     fstype: vfat
-    opts: "loop,offset={{ (boot_start | int) * (sector_size | int) }}"
     state: mounted
-  become: true
 
-- name: Mount root partition from image
-  ansible.builtin.mount:
-    path: "{{ work_dir }}/mnt_root"
-    src: "{{ img_path }}"
-    fstype: ext4
-    opts: "loop,offset={{ (root_start | int) * (sector_size | int) }}"
-    state: mounted
+- name: Mount root partition (p2)
   become: true
+  ansible.posix.mount:
+    path: "{{ work_dir }}/mnt_root"
+    src: "{{ root_device }}"
+    fstype: ext4
+    state: mounted
+
 
 - name: Ensure per-node base dir exists
   ansible.builtin.file:
@@ -204,3 +234,9 @@
     path: "{{ work_dir }}/mnt_root"
     state: unmounted
   become: true
+
+- name: Detach loop device
+  become: true
+  ansible.builtin.command: "losetup -d {{ loop_device }}"
+  when: loop_device is defined
+  changed_when: true
