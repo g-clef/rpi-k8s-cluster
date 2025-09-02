@@ -57,66 +57,78 @@
       which suggests a bad URL or network/auth issue. Check raspios_url.
   when: raspios_mime.stdout in ['text/html', 'text/plain']
 
-# Compute archive and the **intended** image path
-- name: Derive archive and image names
+
+# === Replace your old derive/unpack tasks with everything from here down to "Image ready" ===
+
+- name: Normalize archive + image names and img_path
   ansible.builtin.set_fact:
-    raspios_archive: "{{ raspios_url | basename }}"
-    raspios_img: '{{ (raspios_url | basename)
-                     | regex_replace("\\.img\\.xz$", ".img")
-                     | regex_replace("\\.xz$", "")
-                     | regex_replace("\\.zip$", "") }}'
+    raspios_archive: "{{ work_dir }}/{{ raspios_url | basename }}"
+    raspios_img: "{{ work_dir }}/{{ (raspios_url | basename)
+                    | regex_replace('\\.img\\.xz$', '.img')
+                    | regex_replace('\\.xz$', '')
+                    | regex_replace('\\.zip$', '') }}"
+    img_path: "{{ work_dir }}/{{ (raspios_url | basename)
+                 | regex_replace('\\.img\\.xz$', '.img')
+                 | regex_replace('\\.xz$', '')
+                 | regex_replace('\\.zip$', '') }}"
 
-
-# Unpack legacy .zip archives
+# --- ZIP path (legacy images) ---
 - name: Unpack ZIP → IMG (legacy images)
   ansible.builtin.unarchive:
-    src: "{{ work_dir }}/{{ raspios_archive }}"
+    src: "{{ raspios_archive }}"
     dest: "{{ work_dir }}"
     remote_src: true
-  when: raspios_mime.stdout in ['application/zip']
+  when: raspios_mime.stdout == 'application/zip'
 
-# Unpack .xz archives (keep archive; write explicit img)
-- name: Check if IMG already exists (idempotent)
-  ansible.builtin.stat:
-    path: "{{ work_dir }}/{{ raspios_img }}"
-  register: raspios_img_stat
+# If the ZIP didn’t produce the expected filename, pick the newest .img
+- name: Use newest .img if expected name not present (ZIP case)
+  ansible.builtin.find:
+    paths: "{{ work_dir }}"
+    patterns: "*.img"
+  register: zip_img_find
+  when:
+    - raspios_mime.stdout == 'application/zip'
+    - not (img_path is exists)
 
-- name: Extract XZ → IMG (deterministic, keep archive)
+- name: Reset img_path to newest .img (ZIP case)
+  ansible.builtin.set_fact:
+    img_path: "{{ (zip_img_find.files | sort(attribute='mtime'))[-1].path }}"
+  when:
+    - raspios_mime.stdout == 'application/zip'
+    - zip_img_find.files | length > 0
+    - not (img_path is exists)
+
+# --- XZ path (current images) ---
+- name: Extract .xz → .img if needed (keep archive; idempotent)
   ansible.builtin.shell: |
     set -euo pipefail
-    xz -tv "{{ work_dir }}/{{ raspios_archive }}" 1>/dev/null
-    xz -dc "{{ work_dir }}/{{ raspios_archive }}" > "{{ work_dir }}/{{ raspios_img }}"
+    xz -tv "{{ raspios_archive }}" 1>/dev/null
+    xz -dc "{{ raspios_archive }}" > "{{ raspios_img }}"
   args:
     executable: /bin/bash
-  when:
-    - raspios_mime.stdout in ['application/x-xz', 'application/octet-stream']
-    - not raspios_img_stat.stat.exists
-  register: xz_extract
+    creates: "{{ raspios_img }}"
+  when: raspios_mime.stdout in ['application/x-xz', 'application/octet-stream']
 
-# Verify that we now have a plausible .img (size > 100 MB)
-- name: Stat extracted IMG
-  ansible.builtin.stat:
-    path: "{{ work_dir }}/{{ raspios_img }}"
-  register: raspios_img_after
+# --- Verify we have a real uncompressed disk image ---
+- name: Verify extracted image looks sane
+  ansible.builtin.command: file -b "{{ img_path }}"
+  register: img_kind
+  changed_when: false
 
-- name: Fail if no .img found or file looks too small
+- name: Fail if image is missing or still compressed/invalid
   ansible.builtin.fail:
     msg: >-
-      Expected IMG at {{ work_dir }}/{{ raspios_img }} after unpacking {{ raspios_archive }},
-      but it was {{ 'missing' if not raspios_img_after.stat.exists else (raspios_img_after.stat.size ~ ' bytes') }}.
-      Archive MIME: {{ raspios_mime.stdout }}.
-      If this is an .xz, try manually: xz -tv {{ work_dir }}/{{ raspios_archive }}
-  when: (not raspios_img_after.stat.exists) or (raspios_img_after.stat.size | int < 100*1024*1024)
+      Expected an uncompressed disk image at {{ img_path }}; got: {{ img_kind.stdout }}.
+      Ensure there is enough free space (3–4 GB) and try again.
+  when: img_kind.stdout is search('XZ compressed data|text/html|text/plain') or
+        img_kind.stdout is not search('DOS/MBR|partition|filesystem|disk image')
 
+# === Image ready ===
 - name: Set image path
   ansible.builtin.set_fact:
     img_path: "{{ work_dir }}/{{ raspios_img }}"
 
 
-# img_path is now known explicitly
-- name: Set image path
-  ansible.builtin.set_fact:
-    img_path: "{{ work_dir }}/{{ raspios_img }}"
 
 # Extract start sectors with fdisk + awk (no Jinja regex needed)
 - name: Get boot start sector (EFI/W95/FAT types)
