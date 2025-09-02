@@ -1,29 +1,29 @@
 ---
 # roles/nfs_roots/tasks/build_per_node.yml
-# Requires vars set by main: base_root_dir, overlay_base_dir, work_dir, tftp_root
+# Uses vars from main: base_root_dir, upper_root_dir, work_root_dir, work_dir, tftp_root, per_node_root_base
 
 - name: Compute node paths
   ansible.builtin.set_fact:
     node_name: "{{ hostvars[node].hostname }}"
     node_mac_id: "{{ hostvars[node].mac | lower | replace(':','-') }}"
     node_root: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}"
-    node_tftp: "{{ tftp_root }}/{{ hostvars[node].mac | lower | replace(':','-') }}"
-    node_upper: "{{ overlay_base_dir }}/{{ hostvars[node].hostname }}/upper"
-    node_work:  "{{ overlay_base_dir }}/{{ hostvars[node].hostname }}/work"
+    node_tftp: "{{ tftp_root }}/{{ node_mac_id }}"
+    node_upper: "{{ upper_root_dir }}/{{ hostvars[node].hostname }}"
+    node_work:  "{{ work_root_dir  }}/{{ hostvars[node].hostname }}"
 
-- name: Prepare directories for overlay + export
+- name: Prepare directories (mountpoint and per-node upper/work, TFTP)
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
     mode: "0755"
   loop:
-    - "{{ node_root }}"   # overlay mountpoint (NFS will export this)
+    - "{{ node_root }}"
     - "{{ node_upper }}"
     - "{{ node_work }}"
     - "{{ node_tftp }}"
   become: true
 
-# Make sure overlayfs module is present/enabled
+# Ensure overlayfs module exists/enabled
 - name: Load overlayfs kernel module (no-fail if already loaded)
   ansible.builtin.command: modprobe overlay
   changed_when: false
@@ -37,7 +37,7 @@
     mode: "0644"
   become: true
 
-# Persist overlay mount then mount it
+# Persist and mount overlay
 - name: Ensure overlay mount present in fstab
   ansible.posix.mount:
     path: "{{ node_root }}"
@@ -47,7 +47,7 @@
     state: present
   become: true
 
-- name: Mount overlay (lower=_base, upper per-node)
+- name: Mount overlay (lower=base, upper/work per-node)
   ansible.posix.mount:
     path: "{{ node_root }}"
     src: "overlay"
@@ -56,7 +56,7 @@
     state: mounted
   become: true
 
-# --- Per-node customizations go into the overlay (written to node_upper) ---
+# --- Per-node customizations (written into overlay upper) ---
 
 - name: Set hostname
   ansible.builtin.copy:
@@ -81,7 +81,7 @@
       tmpfs /tmp     tmpfs defaults,noatime,nosuid,size={{ tmpfs_tmp_size }}     0 0
   become: true
 
-# --- TFTP boot files: hard-link clone + unique cmdline.txt ---
+# --- TFTP boot files: shared + per-node cmdline.txt ---
 
 - name: Determine boot source directory
   ansible.builtin.set_fact:

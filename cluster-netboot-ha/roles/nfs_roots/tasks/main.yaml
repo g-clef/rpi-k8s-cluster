@@ -1,15 +1,19 @@
 ---
 # roles/nfs_roots/tasks/main.yaml
 #
-# Expected vars (e.g., in group_vars/all.yml or role defaults):
+# Vars you should set (group_vars/all.yml or role defaults):
 #   work_dir: /srv/rpi-build
 #   raspios_url: "https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-11-19/2024-11-19-raspios-bookworm-arm64-lite.img.xz"
-#   per_node_root_base: /mnt/nfsroot/roots
-#   tftp_root: /srv/tftp
+#   per_node_root_base: /mnt/nfsroot/roots   # LOCAL path that nas-vm exports to Pis
+#   tftp_root: /srv/tftp                     # LOCAL
 #   tmpfs_var_log_size: 64M
 #   tmpfs_tmp_size: 64M
-# Inventory groups:
-#   pi_servers, pi_agents   (each host must have: hostname, mac)
+# Optional (can override):
+#   overlay_root: /var/lib/rpi-overlays      # LOCAL; holds base + all uppers/works
+
+- name: Set sane defaults for overlay_root
+  ansible.builtin.set_fact:
+    overlay_root: "{{ overlay_root | default('/var/lib/rpi-overlays') }}"
 
 # --- Prep: dirs & tools -------------------------------------------------------
 
@@ -41,7 +45,7 @@
     dest: "{{ work_dir }}/{{ raspios_url | basename }}"
     mode: "0644"
     force: false
-    timeout: 1800           # 30m socket read timeout
+    timeout: 1800
     tmp_dest: "{{ work_dir }}"
   register: raspios_dl
   retries: 5
@@ -75,7 +79,6 @@
                  | regex_replace('\\.xz$', '')
                  | regex_replace('\\.zip$', '') }}"
 
-# Legacy ZIP case
 - name: Unpack ZIP → IMG (legacy images)
   ansible.builtin.unarchive:
     src: "{{ raspios_archive }}"
@@ -84,7 +87,6 @@
   when: raspios_mime.stdout == 'application/zip'
   become: true
 
-# Current XZ case
 - name: Extract .xz → .img if needed (keep archive; idempotent)
   ansible.builtin.shell: |
     set -euo pipefail
@@ -142,75 +144,4 @@
 
 - name: Mount boot partition (p1)
   ansible.posix.mount:
-    path: "{{ work_dir }}/mnt_boot"
-    src: "{{ boot_device }}"
-    fstype: vfat
-    state: mounted
-  become: true
-
-- name: Mount root partition (p2)
-  ansible.posix.mount:
-    path: "{{ work_dir }}/mnt_root"
-    src: "{{ root_device }}"
-    fstype: ext4
-    state: mounted
-  become: true
-
-# --- Build shared read-only base & overlay layout -----------------------------
-
-- name: Define base + overlay directories
-  ansible.builtin.set_fact:
-    base_root_dir: "{{ per_node_root_base }}/_base"
-    overlay_base_dir: "{{ per_node_root_base }}/_overlay"
-
-- name: Ensure base and overlay base dirs exist
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: directory
-    mode: "0755"
-  loop:
-    - "{{ per_node_root_base }}"
-    - "{{ base_root_dir }}"
-    - "{{ overlay_base_dir }}"
-  become: true
-
-- name: Rsync image root → shared base (once)
-  ansible.builtin.command: >
-    rsync -a --delete --numeric-ids
-    --exclude='/dev/*' --exclude='/proc/*' --exclude='/sys/*' --exclude='/run/*'
-    --out-format='<<CHANGED>>%i %n%L'
-    "{{ work_dir }}/mnt_root/"
-    "{{ base_root_dir }}/"
-  register: rsync_base
-  changed_when: "'<<CHANGED>>' in rsync_base.stdout"
-  become: true
-  run_once: true
-
-# --- Per-node overlay + TFTP --------------------------------------------------
-
-- name: Build per-node roots and TFTP subdirs (overlayfs)
-  ansible.builtin.include_tasks: build_per_node.yml
-  loop: "{{ (groups['pi_servers'] | default([])) + (groups['pi_agents'] | default([])) }}"
-  loop_control:
-    loop_var: node
-    label: "{{ hostvars[node].hostname | default(node) }}"
-
-# --- Cleanup: unmount & detach loop ------------------------------------------
-
-- name: Unmount boot
-  ansible.posix.mount:
-    path: "{{ work_dir }}/mnt_boot"
-    state: unmounted
-  become: true
-
-- name: Unmount root
-  ansible.posix.mount:
-    path: "{{ work_dir }}/mnt_root"
-    state: unmounted
-  become: true
-
-- name: Detach loop device
-  ansible.builtin.command: "losetup -d {{ loop_device }}"
-  when: loop_device is defined
-  changed_when: true
-  become: true
+    path: "{{
