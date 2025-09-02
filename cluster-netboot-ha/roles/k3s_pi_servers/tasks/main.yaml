@@ -40,7 +40,9 @@
     src: files/firstboot-ops.service       # or templates/firstboot-ops.service.j2
     dest: /mnt/nfsroot/roots/{{ item }}/etc/systemd/system/firstboot-ops.service
     mode: '0644'
-  loop: "{{ pi_nodes }}"
+  loop: "{{ groups['pi_servers'] | default([]) }}"
+  loop_control:
+    label: "{{ hostvars[item].hostname }}"
   become: true
 
 # 2) Ensure the wants/ dir exists
@@ -49,7 +51,9 @@
     path: /mnt/nfsroot/roots/{{ item }}/etc/systemd/system/multi-user.target.wants
     state: directory
     mode: '0755'
-  loop: "{{ pi_nodes }}"
+  loop: "{{ groups['pi_servers'] | default([]) }}"
+  loop_control:
+    label: "{{ hostvars[item].hostname }}"
   become: true
 
 # 3) Enable via a RELATIVE symlink inside that root
@@ -58,5 +62,7 @@
     src: ../firstboot-ops.service
     dest: /mnt/nfsroot/roots/{{ item }}/etc/systemd/system/multi-user.target.wants/firstboot-ops.service
     state: link
-  loop: "{{ pi_nodes }}"
+  loop: "{{ groups['pi_servers'] | default([]) }}"
+  loop_control:
+    label: "{{ hostvars[item].hostname }}"
   become: true
