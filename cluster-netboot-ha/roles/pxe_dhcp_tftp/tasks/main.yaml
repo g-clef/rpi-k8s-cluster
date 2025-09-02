@@ -11,12 +11,63 @@
     mode: "0755"
   become: true
 
+# Ensure work dir exists (if you don't already elsewhere)
+- name: Ensure build/work dir exists
+  ansible.builtin.file:
+    path: "{{ work_dir }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+# Get Raspberry Pi firmware (ZIP of the repo HEAD by default; override rpi_firmware_url if you like)
+- name: Download Raspberry Pi firmware (patient + retries)
+  ansible.builtin.get_url:
+    url: "{{ rpi_firmware_url | default('https://github.com/raspberrypi/firmware/archive/refs/heads/master.zip') }}"
+    dest: "{{ work_dir }}/rpi-fw.zip"
+    mode: "0644"
+    force: false
+    timeout: 1800
+    tmp_dest: "{{ work_dir }}"
+  register: fw_dl
+  retries: 5
+  delay: 10
+  until: fw_dl is succeeded
+
+- name: Unpack firmware
+  ansible.builtin.unarchive:
+    src: "{{ work_dir }}/rpi-fw.zip"
+    dest: "{{ work_dir }}"
+    remote_src: true
+  become: true
+
+# Find the directory that actually contains the boot files (start*.elf / fixup*.dat)
+- name: Locate boot files directory
+  ansible.builtin.find:
+    paths: "{{ work_dir }}"
+    patterns: "start*.elf"
+    recurse: true
+  register: fw_elfs
+
+- name: Derive firmware boot dir
+  ansible.builtin.set_fact:
+    firmware_boot_dir: "{{ (fw_elfs.files | first).path | dirname }}"
+  when: fw_elfs.files | length > 0
+
+- name: Fail if boot files not found
+  ansible.builtin.fail:
+    msg: >-
+      Could not locate Raspberry Pi boot files under {{ work_dir }}.
+      Expected to find start*.elf / fixup*.dat after unpacking firmware.
+  when: fw_elfs.files | length == 0
+
+
 - name: Sync /boot files to TFTP root (local on nas-vm, via sudo)
   ansible.builtin.command: >
     rsync -a --delete
     --out-format='<<CHANGED>>%i %n%L'
-    /srv/rpi-build/firmware-master/boot/
-    /srv/tftp/
+    "{{ firmware_boot_dir }}/"
+    "{{ tftp_root }}/"
   register: rsync_result
   changed_when: "'<<CHANGED>>' in rsync_result.stdout"
   become: true
+
