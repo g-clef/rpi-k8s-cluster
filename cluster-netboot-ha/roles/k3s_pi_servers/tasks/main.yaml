@@ -34,14 +34,29 @@
     label: "{{ hostvars[item].hostname }}"
   become: true
 
+# 1) Make sure the unit exists INSIDE the Pi root
+- name: Drop firstboot-ops.service into Pi root
+  ansible.builtin.copy:
+    src: files/firstboot-ops.service       # or templates/firstboot-ops.service.j2
+    dest: /mnt/nfsroot/roots/{{ item }}/etc/systemd/system/firstboot-ops.service
+    mode: '0644'
+  loop: "{{ pi_nodes }}"
+  become: true
 
-- name: Drop firstboot ops unit on pi01 (labels + Argo CD)
-  copy:
-    dest: "{{ per_node_root_base }}/pi01/etc/systemd/system/firstboot-ops.service"
-    content: "{{ lookup('template','firstboot-ops.service.j2') }}"
+# 2) Ensure the wants/ dir exists
+- name: Ensure multi-user.target.wants exists
+  ansible.builtin.file:
+    path: /mnt/nfsroot/roots/{{ item }}/etc/systemd/system/multi-user.target.wants
+    state: directory
+    mode: '0755'
+  loop: "{{ pi_nodes }}"
+  become: true
 
-- name: Enable firstboot ops on pi01
-  file:
+# 3) Enable via a RELATIVE symlink inside that root
+- name: Enable firstboot-ops in Pi root (relative symlink)
+  ansible.builtin.file:
+    src: ../firstboot-ops.service
+    dest: /mnt/nfsroot/roots/{{ item }}/etc/systemd/system/multi-user.target.wants/firstboot-ops.service
     state: link
-    src: /etc/systemd/system/firstboot-ops.service
-    dest: "{{ per_node_root_base }}/pi01/etc/systemd/system/multi-user.target.wants/firstboot-ops.service"
+  loop: "{{ pi_nodes }}"
+  become: true
