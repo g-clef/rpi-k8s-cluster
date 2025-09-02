@@ -134,13 +134,20 @@
   ansible.builtin.set_fact:
     sector_size: 512
     boot_start: '{{ (fdisk_out.stdout
-                      | regex_search("^" ~ (img_path | regex_escape) ~ "p?\\d+\\s+(\\d+)\\s+.*(EFI System|W95 FAT32|Microsoft basic data|FAT)", True, True)
+                      | regex_search(
+                          "^" ~ (img_path | regex_escape) ~ "p?\\d+\\s+(\\d+)\\s+.*(EFI System|W95 FAT32|Microsoft basic data|FAT)",
+                          multiline=True, ignorecase=True
+                        )
                       | default([], true))
                     | first(default="8192") | int }}'
     root_start: '{{ (fdisk_out.stdout
-                      | regex_search("^" ~ (img_path | regex_escape) ~ "p?\\d+\\s+(\\d+)\\s+.*Linux filesystem", True, True)
+                      | regex_search(
+                          "^" ~ (img_path | regex_escape) ~ "p?\\d+\\s+(\\d+)\\s+.*Linux filesystem",
+                          multiline=True, ignorecase=True
+                        )
                       | default([], true))
                     | first(default="532480") | int }}'
+
 
 - name: Mount boot partition from image
   ansible.builtin.mount:
