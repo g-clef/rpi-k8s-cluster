@@ -126,7 +126,7 @@
 # === Image ready ===
 - name: Set image path
   ansible.builtin.set_fact:
-    img_path: "{{ work_dir }}/{{ raspios_img }}"
+    img_path: "{{ raspios_img }}"
 
 
 
