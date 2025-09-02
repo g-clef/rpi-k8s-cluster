@@ -2,14 +2,19 @@
 # roles/nfs_roots/tasks/build_per_node.yml
 # Uses vars from main: base_root_dir, upper_root_dir, work_root_dir, work_dir, tftp_root, per_node_root_base
 
-- name: Compute node paths
+# 1) Identity pieces first (don't reference these in the same set_fact)
+- name: Compute node identity
   ansible.builtin.set_fact:
     node_name: "{{ hostvars[node].hostname }}"
     node_mac_id: "{{ hostvars[node].mac | lower | replace(':','-') }}"
-    node_root: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}"
+
+# 2) Now compute paths that can safely use the above
+- name: Compute node paths
+  ansible.builtin.set_fact:
+    node_root: "{{ per_node_root_base }}/{{ node_name }}"
     node_tftp: "{{ tftp_root }}/{{ node_mac_id }}"
-    node_upper: "{{ upper_root_dir }}/{{ hostvars[node].hostname }}"
-    node_work:  "{{ work_root_dir  }}/{{ hostvars[node].hostname }}"
+    node_upper: "{{ upper_root_dir }}/{{ node_name }}"
+    node_work:  "{{ work_root_dir  }}/{{ node_name }}"
 
 - name: Prepare directories (mountpoint and per-node upper/work, TFTP)
   ansible.builtin.file:
