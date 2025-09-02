@@ -4,11 +4,16 @@
     path: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}"
     state: directory
 
-- name: Rsync base rootfs
-  ansible.builtin.synchronize:
-    src: "{{ work_dir }}/mnt_root/"
-    dest: "{{ per_node_root_base }}/{{ hostvars[node].hostname }}/"
-    recursive: yes
+- name: Rsync base rootfs (local on nas-vm, via sudo)
+  ansible.builtin.command: >
+    rsync -a --delete --numeric-ids
+    --exclude='/dev/*' --exclude='/proc/*' --exclude='/sys/*' --exclude='/run/*'
+    --out-format='<<CHANGED>>%i %n%L'
+    "{{ work_dir }}/mnt_root/"
+    "{{ per_node_root_base }}/{{ hostvars[node].hostname }}/"
+  register: rsync_root
+  changed_when: "'<<CHANGED>>' in rsync_root.stdout"
+  become: true
 
 - name: Ensure /boot dir exists in node root
   ansible.builtin.file:
