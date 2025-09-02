@@ -118,37 +118,32 @@
   ansible.builtin.set_fact:
     img_path: "{{ work_dir }}/{{ raspios_img }}"
 
-- name: Get partition table
-  ansible.builtin.command:
-    cmd: "fdisk -l -o Device,Start,Type {{ img_path }}"
-  register: fdisk_out
+# Extract start sectors with fdisk + awk (no Jinja regex needed)
+- name: Get boot start sector (EFI/W95/FAT types)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    fdisk -l -o Device,Start,Type "{{ img_path }}" \
+    | awk 'BEGIN{IGNORECASE=1} /(EFI System|W95 FAT32|Microsoft basic data|FAT)/ { print $2; exit }'
+  args:
+    executable: /bin/bash
+  register: boot_start_raw
   changed_when: false
 
-# Optional: flip to 'true' once to see what fdisk actually prints on your box
-- name: Debug fdisk output (one-time)
-  ansible.builtin.debug:
-    var: fdisk_out.stdout
-  when: false
+- name: Get root start sector (Linux filesystem)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    fdisk -l -o Device,Start,Type "{{ img_path }}" \
+    | awk 'BEGIN{IGNORECASE=1} /Linux filesystem/ { print $2; exit }'
+  args:
+    executable: /bin/bash
+  register: root_start_raw
+  changed_when: false
 
-- name: Parse partition starts (robust + safe fallbacks)
+- name: Set sector size and apply safe defaults
   ansible.builtin.set_fact:
     sector_size: 512
-    boot_start: '{{ (fdisk_out.stdout
-                      | regex_search(
-                          "^" ~ (img_path | regex_escape) ~ "p?\\d+\\s+(\\d+)\\s+.*(EFI System|W95 FAT32|Microsoft basic data|FAT)",
-                          multiline=True, ignorecase=True
-                        )
-                      | default(["8192"], true)   # if None → ["8192"]
-                      | first
-                      | int) }}'
-    root_start: '{{ (fdisk_out.stdout
-                      | regex_search(
-                          "^" ~ (img_path | regex_escape) ~ "p?\\d+\\s+(\\d+)\\s+.*Linux filesystem",
-                          multiline=True, ignorecase=True
-                        )
-                      | default(["532480"], true) # if None → ["532480"]
-                      | first
-                      | int) }}'
+    boot_start: "{{ (boot_start_raw.stdout | trim | default('', true)) | default('8192', true) | int }}"
+    root_start: "{{ (root_start_raw.stdout | trim | default('', true)) | default('532480', true) | int }}"
 
 
 
