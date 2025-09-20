@@ -3,4 +3,5 @@
   shell: |
     /usr/local/bin/k3s kubectl create namespace argocd --dry-run=client -o yaml | /usr/local/bin/k3s kubectl apply -f -
     /usr/local/bin/k3s kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+  delegate_to: "{{ groups['pi_servers'][0] }}"
   changed_when: false
