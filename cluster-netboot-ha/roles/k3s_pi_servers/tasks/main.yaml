@@ -36,8 +36,8 @@
 
 # 1) Make sure the unit exists INSIDE the Pi root
 - name: Drop firstboot-ops.service into Pi root
-  ansible.builtin.copy:
-    src: files/firstboot-ops.service       # or templates/firstboot-ops.service.j2
+  ansible.builtin.template:
+    src: firstboot-ops.service.j2
     dest: /mnt/nfsroot/roots/{{ item }}/etc/systemd/system/firstboot-ops.service
     mode: '0644'
   loop: "{{ groups['pi_servers'] | default([]) }}"
