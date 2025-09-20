@@ -5,7 +5,6 @@
     - nfs_roots
     - k3s_pi_servers
     - k3s_pi_agents
-    - argocd
 
 # After nodes come up, this play can be re-run to ensure labels/taints
 - hosts: pxe_vm
