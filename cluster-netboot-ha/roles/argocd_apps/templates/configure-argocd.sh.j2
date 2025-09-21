@@ -30,7 +30,43 @@ echo "Setting ArgoCD admin password..."
 BCRYPT_PASSWORD=$(python3 -c "import bcrypt; print(bcrypt.hashpw('{{ argocd_admin_password }}'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'))")
 /usr/local/bin/k3s kubectl -n argocd patch secret argocd-secret -p "{\"stringData\":{\"admin.password\":\"$BCRYPT_PASSWORD\",\"admin.passwordMtime\":\"$(date +%FT%T%Z)\"}}"
 {% endif %}
+#!/bin/bash
+set -e
 
+echo "Waiting for ArgoCD to be ready..."
+for i in $(seq 1 120); do
+    if /usr/local/bin/k3s kubectl get pods -n argocd -l app.kubernetes.io/name=argocd-server >/dev/null 2>&1; then
+        if /usr/local/bin/k3s kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=argocd-server -n argocd --timeout=10s >/dev/null 2>&1; then
+            break
+        fi
+    fi
+    echo "Waiting for ArgoCD to be ready... ($i/120)"
+    sleep 5
+done
+
+{% if github_token is defined and github_token != '' %}
+echo "Creating GitHub repository secret..."
+/usr/local/bin/k3s kubectl apply -f /tmp/argocd-apps/github-repo-secret.yaml
+{% endif %}
+
+echo "Creating ArgoCD applications..."
+{% for app in argocd_applications | default([]) %}
+echo "Creating {{ app.name }} application..."
+/usr/local/bin/k3s kubectl apply -f /tmp/argocd-apps/{{ app.name }}-app.yaml
+{% endfor %}
+
+echo "Waiting for applications to sync..."
+sleep 10
+
+{% for app in argocd_applications | default([]) %}
+echo "Checking {{ app.name }} application status..."
+/usr/local/bin/k3s kubectl get application {{ app.name }} -n argocd
+{% endfor %}
+
+echo "ArgoCD configuration complete!"
+echo "ArgoCD UI available at: http://any-pi-ip:{{ argocd_nodeport | default(30080) }}"
+echo "Default username: admin"
+echo "Default password: {{ argocd_admin_password }}"
 echo "ArgoCD configuration complete!"
 
 # Optional: Create port-forward service for ArgoCD UI access

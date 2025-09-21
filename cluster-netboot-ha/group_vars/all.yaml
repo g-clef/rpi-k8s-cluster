@@ -63,23 +63,20 @@ argocd_applications:
     namespace: api
     auto_sync: true
     auto_prune: true
+  - name: ray-cluster
+    repo_url: "{{ ray_cluster_repo_url | default('https://github.com/your-username/pi-ray-cluster.git') }}"
+    branch: "{{ ray_cluster_repo_branch | default('main') }}"
+    path: "{{ ray_cluster_repo_path | default('manifests') }}"
+    namespace: "{{ ray_namespace | default('ray') }}"
+    auto_sync: true
+    auto_prune: true
 
-# KubeRay Configuration
-ray_cluster_name: "pi-ray-cluster"
+# KubeRay GitOps Configuration
+ray_cluster_repo_url: "{{ secrets.ray_cluster_repo_url | default('https://github.com/your-username/pi-ray-cluster.git') }}"
+ray_cluster_repo_branch: "{{ secrets.ray_cluster_repo_branch | default('main') }}"
+ray_cluster_repo_path: "{{ secrets.ray_cluster_repo_path | default('manifests') }}"
 ray_namespace: "ray"
-ray_head_cpu: "1"
-ray_head_memory: "2G"
-ray_worker_replicas: 3
-ray_worker_cpu: "500m"
-ray_worker_memory: "1G"
-ray_dashboard_nodeport: 30265
-ray_client_nodeport: 30001
-ray_serve_nodeport: 30800
-ray_redis_password: "{{ secrets.ray_redis_password | default('') }}"
 
-# GPU Ray Workers Configuration
-ray_enable_gpu: true
-ray_gpu_worker_replicas: 1
-ray_gpu_worker_cpu: "2"
-ray_gpu_worker_memory: "4G"
-ray_gpus_per_worker: "1"
+# KubeRay Operator Configuration (only operator is installed by Ansible)
+kuberay_operator_version: "{{ secrets.kuberay_operator_version | default('v1.0.0') }}"
+kuberay_operator_namespace: "ray-system"

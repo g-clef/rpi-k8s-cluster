@@ -50,6 +50,10 @@ This repository contains Ansible playbooks for deploying a highly available Kube
 6. **argocd** - GitOps platform deployment
    - Installs Argo CD for continuous deployment workflows
 
+7. **kuberay** - Ray operator installation
+   - Installs KubeRay operator for Ray cluster management
+   - Ray clusters are deployed via GitOps from dedicated repository
+
 ## Storage Architecture
 - **NFS Export Path**: `/volume2/nfsroot` on Synology NAS
 - **Local Mount**: `/mnt/nfsroot` on control VM
@@ -66,9 +70,13 @@ The main playbook (`cluster-netboot-ha/site.yaml`) executes in two phases:
 1. DHCP/TFTP service configuration
 2. NFS root filesystem creation
 3. K3s server deployment (control plane)
-4. K3s agent deployment (worker nodes)  
-5. Argo CD installation
-6. Node labeling and tainting
+4. K3s agent deployment (worker nodes)
+5. MinIO S3 service deployment
+6. Argo CD installation and application configuration
+7. KubeRay operator installation
+8. Node labeling and tainting
+
+Note: Ray clusters are deployed via GitOps - ArgoCD pulls Ray cluster manifests from a dedicated GitHub repository after the operator is installed.
 
 ## Key Configuration Files
 - `inventory/hosts.yaml` - Node definitions with MAC addresses and IP assignments
