@@ -3,8 +3,11 @@ port=0
 
 # Only bind to our specific interface, never localhost
 interface={{ net_iface }}
-bind-interfaces
+bind-dynamic
 except-interface=lo
+
+# Only listen on the interface, not specific IPs
+no-dhcp-interface=lo
 
 # Disable all default behaviors that might bind to localhost  
 no-hosts
