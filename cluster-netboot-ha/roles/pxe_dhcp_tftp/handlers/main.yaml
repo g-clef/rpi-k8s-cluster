@@ -4,9 +4,3 @@
     name: dnsmasq
     state: restarted
   become: true
----
-- name: restart dnsmasq
-  ansible.builtin.systemd:
-    name: dnsmasq
-    state: restarted
-  become: true
