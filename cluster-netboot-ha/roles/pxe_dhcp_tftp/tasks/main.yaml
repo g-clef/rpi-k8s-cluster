@@ -85,13 +85,18 @@
   ignore_errors: true
 
 - name: Check what's using port 53
-  ansible.builtin.shell: "netstat -tulnp | grep :53 || true"
+  ansible.builtin.shell: "lsof -i :53 || netstat -tulnp | grep :53 || true"
   register: port53_check
   become: true
 
 - name: Display what's using port 53
   ansible.builtin.debug:
     msg: "Port 53 usage: {{ port53_check.stdout_lines }}"
+
+- name: Stop any existing dnsmasq processes
+  ansible.builtin.shell: "pkill -f dnsmasq || true"
+  become: true
+  ignore_errors: true
 
 - name: Stop systemd-resolved completely
   ansible.builtin.systemd:
@@ -103,6 +108,17 @@
 
 - name: Kill any remaining systemd-resolved processes
   ansible.builtin.shell: "pkill -f systemd-resolved || true"
+  become: true
+  ignore_errors: true
+
+- name: Kill any other processes using port 53
+  ansible.builtin.shell: |
+    for pid in $(lsof -t -i :53 2>/dev/null || true); do
+      if [ -n "$pid" ]; then
+        echo "Killing process $pid using port 53"
+        kill -9 "$pid" || true
+      fi
+    done
   become: true
   ignore_errors: true
 
@@ -129,18 +145,18 @@
     backup: true
   become: true
 
-- name: Wait a moment for ports to be released
+- name: Wait for ports to be fully released
   ansible.builtin.pause:
-    seconds: 3
+    seconds: 5
 
-- name: Check port 53 is now free
-  ansible.builtin.shell: "netstat -tulnp | grep :53 || true"
-  register: port53_after
+- name: Final check - what's still using port 53
+  ansible.builtin.shell: "lsof -i :53 || netstat -tulnp | grep :53 || echo 'Port 53 is free'"
+  register: port53_final
   become: true
 
-- name: Display port 53 status after cleanup
+- name: Display final port 53 status
   ansible.builtin.debug:
-    msg: "Port 53 after cleanup: {{ port53_after.stdout_lines }}"
+    msg: "Final port 53 status: {{ port53_final.stdout_lines }}"
 
 - name: Create dnsmasq configuration
   ansible.builtin.template:
