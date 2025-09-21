@@ -1,5 +1,7 @@
 - hosts: pxe_vm
   become: yes
+  vars_files:
+    - secrets.yaml
   roles:
     - pxe_dhcp_tftp
     - nfs_roots

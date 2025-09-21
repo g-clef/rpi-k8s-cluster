@@ -18,15 +18,15 @@ all:
       hosts:
         pi04: { mac: e4:5f:01:da:a4:37, ip: 192.168.1.104, hostname: pi04 }
         pi05: { mac: e4:5f:01:da:a3:f2, ip: 192.168.1.105, hostname: pi05 }
-        pi06: { mac: e4:5f:01:da:96:48, ip: 192.168.1.104, hostname: pi06 }
-        pi07: { mac: e4:5f:01:da:96:5e, ip: 192.168.1.105, hostname: pi07 }
-        pi08: { mac: e4:5f:01:da:97:3f, ip: 192.168.1.104, hostname: pi08 }
-        pi09: { mac: e4:5f:01:da:a5:69, ip: 192.168.1.105, hostname: pi09 }
-        pi10: { mac: e4:5f:01:da:a5:9f, ip: 192.168.1.104, hostname: pi10 }
-        pi11: { mac: e4:5f:01:da:a5:31, ip: 192.168.1.105, hostname: pi11 }
-        pi12: { mac: e4:5f:01:da:a5:05, ip: 192.168.1.104, hostname: pi12 }
-        pi13: { mac: e4:5f:01:da:a6:04, ip: 192.168.1.105, hostname: pi13 }
-        pi14: { mac: e4:5f:01:da:a1:fd, ip: 192.168.1.104, hostname: pi14 }
-        pi15: { mac: e4:5f:01:da:a5:fc, ip: 192.168.1.105, hostname: pi15 }
-        pi16: { mac: e4:5f:01:da:a5:bb, ip: 192.168.1.104, hostname: pi16 }
-        pi17: { mac: e4:5f:01:da:a5:b8, ip: 192.168.1.105, hostname: pi17 }
+        pi06: { mac: e4:5f:01:da:96:48, ip: 192.168.1.106, hostname: pi06 }
+        pi07: { mac: e4:5f:01:da:96:5e, ip: 192.168.1.107, hostname: pi07 }
+        pi08: { mac: e4:5f:01:da:97:3f, ip: 192.168.1.108, hostname: pi08 }
+        pi09: { mac: e4:5f:01:da:a5:69, ip: 192.168.1.109, hostname: pi09 }
+        pi10: { mac: e4:5f:01:da:a5:9f, ip: 192.168.1.110, hostname: pi10 }
+        pi11: { mac: e4:5f:01:da:a5:31, ip: 192.168.1.111, hostname: pi11 }
+        pi12: { mac: e4:5f:01:da:a5:05, ip: 192.168.1.112, hostname: pi12 }
+        pi13: { mac: e4:5f:01:da:a6:04, ip: 192.168.1.113, hostname: pi13 }
+        pi14: { mac: e4:5f:01:da:a1:fd, ip: 192.168.1.114, hostname: pi14 }
+        pi15: { mac: e4:5f:01:da:a5:fc, ip: 192.168.1.115, hostname: pi15 }
+        pi16: { mac: e4:5f:01:da:a5:bb, ip: 192.168.1.116, hostname: pi16 }
+        pi17: { mac: e4:5f:01:da:a5:b8, ip: 192.168.1.117, hostname: pi17 }

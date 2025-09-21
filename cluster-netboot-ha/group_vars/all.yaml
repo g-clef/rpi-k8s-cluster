@@ -1,3 +1,4 @@
+# Network Configuration
 net_iface: eth0
 lan_cidr: 192.168.1.0/24
 router_ip: 192.168.1.1
@@ -5,26 +6,46 @@ dns_servers: 192.168.1.1,50.116.35.168
 dhcp_start: 192.168.1.51
 dhcp_end: 192.168.1.150
 
+# NAS Configuration
 nas_ip: 192.168.1.197
 nas_export_path: /volume2/nfsroot
 local_nas_mount: /mnt/nfsroot
 per_node_root_base: "{{ local_nas_mount }}/roots"
 
+# Build Configuration
 tftp_root: /srv/tftp
 work_dir: /srv/rpi-build
 raspios_url: "https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-11-19/2024-11-19-raspios-bookworm-arm64-lite.img.xz"
 
+# K3s Configuration
+k3s_version: v1.29.7+k3s1
+cluster_token: "{{ secrets.cluster_token | default('CHANGE_ME_TO_A_RANDOM_LONG_STRING') }}"
+cluster_cidr: 10.42.0.0/16
+service_cidr: 10.43.0.0/16
+
+# Pi Configuration
+tmpfs_var_log_size: 64m
+tmpfs_tmp_size: 256m
+
+pi_default_labels:
+  role: worker
+  arch: arm64
+
+gpu_node_hostname: gpu01
+gpu_taint: "gpu=true:NoSchedule"
+
 # MinIO S3 Gateway Configuration
-minio_root_user: "admin"
-minio_root_password: "your-secure-password-here"
-minio_nfs_path: "/volume1/s3-data"  # Adjust to your Synology share path
-minio_service_type: "NodePort"  # Use NodePort for external access, ClusterIP for internal only
+minio_root_user: "{{ secrets.minio_root_user | default('admin') }}"
+minio_root_password: "{{ secrets.minio_root_password | default('change-me') }}"
+minio_nfs_path: "/volume1/s3-data"
+minio_service_type: "NodePort"
 
 # ArgoCD Configuration
-argocd_admin_password: "your-argocd-admin-password"
+argocd_admin_password: "{{ secrets.argocd_admin_password | default('change-me') }}"
 create_argocd_nodeport: true
-github_username: "your-github-username"
-github_token: "your-github-personal-access-token"  # For private repos
+github_username: "{{ secrets.github_username | default('') }}"
+github_token: "{{ secrets.github_token | default('') }}"
+docker_registry_secret: "{{ secrets.docker_registry_secret | default({}) }}"
 
 # Your Applications - Update these with your actual repos
 argocd_applications:
@@ -46,32 +67,19 @@ argocd_applications:
 # KubeRay Configuration
 ray_cluster_name: "pi-ray-cluster"
 ray_namespace: "ray"
-ray_head_cpu: "1"      # Adjust based on Pi resources
-ray_head_memory: "2G"  # Adjust based on Pi resources
+ray_head_cpu: "1"
+ray_head_memory: "2G"
 ray_worker_replicas: 3
 ray_worker_cpu: "500m"
 ray_worker_memory: "1G"
 ray_dashboard_nodeport: 30265
 ray_client_nodeport: 30001
 ray_serve_nodeport: 30800
+ray_redis_password: "{{ secrets.ray_redis_password | default('') }}"
 
 # GPU Ray Workers Configuration
 ray_enable_gpu: true
 ray_gpu_worker_replicas: 1
-ray_gpu_worker_cpu: "2"      # Adjust based on GPU node resources
-ray_gpu_worker_memory: "4G"  # Adjust based on GPU node resources
+ray_gpu_worker_cpu: "2"
+ray_gpu_worker_memory: "4G"
 ray_gpus_per_worker: "1"
-k3s_version: v1.29.7+k3s1
-cluster_token: "CHANGE_ME_TO_A_RANDOM_LONG_STRING"
-cluster_cidr: 10.42.0.0/16
-service_cidr: 10.43.0.0/16
-
-tmpfs_var_log_size: 64m
-tmpfs_tmp_size: 256m
-
-pi_default_labels:
-  role: worker
-  arch: arm64
-
-gpu_node_hostname: gpu01
-gpu_taint: "gpu=true:NoSchedule"
