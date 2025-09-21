@@ -19,6 +19,29 @@ minio_root_user: "admin"
 minio_root_password: "your-secure-password-here"
 minio_nfs_path: "/volume1/s3-data"  # Adjust to your Synology share path
 minio_service_type: "NodePort"  # Use NodePort for external access, ClusterIP for internal only
+
+# ArgoCD Configuration
+argocd_admin_password: "your-argocd-admin-password"
+create_argocd_nodeport: true
+github_username: "your-github-username"
+github_token: "your-github-personal-access-token"  # For private repos
+
+# Your Applications - Update these with your actual repos
+argocd_applications:
+  - name: my-web-app
+    repo_url: https://github.com/your-username/your-web-app.git
+    branch: main
+    path: k8s
+    namespace: web-apps
+    auto_sync: true
+    auto_prune: true
+  - name: my-api
+    repo_url: https://github.com/your-username/your-api.git
+    branch: main
+    path: deploy
+    namespace: api
+    auto_sync: true
+    auto_prune: true
 k3s_version: v1.29.7+k3s1
 cluster_token: "CHANGE_ME_TO_A_RANDOM_LONG_STRING"
 cluster_cidr: 10.42.0.0/16

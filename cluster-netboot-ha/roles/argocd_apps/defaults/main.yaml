@@ -1,0 +1,39 @@
+---
+# ArgoCD Configuration
+argocd_admin_password: "admin123"  # Change this!
+create_argocd_nodeport: true
+argocd_nodeport: 30080
+argocd_nodeport_https: 30443
+
+# GitHub Access (optional - for private repos)
+# github_username: "your-github-username"
+# github_token: "your-github-personal-access-token"
+
+# Docker Registry Access (optional - for private images)
+# docker_registry_secret:
+#   url: "https://index.docker.io/v1/"
+#   username: "your-docker-username"
+#   password: "your-docker-password"
+
+# Example ArgoCD Applications Configuration
+argocd_applications:
+  - name: example-app
+    repo_url: https://github.com/your-username/your-k8s-app.git
+    branch: main
+    path: k8s  # Directory containing Kubernetes manifests
+    namespace: default
+    auto_sync: true
+    auto_prune: true
+    create_namespace: true
+  # - name: helm-app-example
+  #   repo_url: https://github.com/your-username/your-helm-app.git
+  #   branch: main
+  #   path: helm-chart
+  #   namespace: my-app
+  #   helm:
+  #     values_file: values.yaml
+  #     values: |
+  #       image:
+  #         tag: latest
+  #       service:
+  #         type: NodePort

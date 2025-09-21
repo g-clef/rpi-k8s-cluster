@@ -6,3 +6,4 @@
     - k3s_pi_servers
     - k3s_pi_agents
     - minio_s3
+    - argocd_apps

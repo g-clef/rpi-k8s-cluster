@@ -1,0 +1,59 @@
+#!/bin/bash
+set -e
+
+echo "Waiting for ArgoCD to be ready..."
+for i in $(seq 1 120); do
+    if /usr/local/bin/k3s kubectl get deployment argocd-server -n argocd >/dev/null 2>&1; then
+        if /usr/local/bin/k3s kubectl rollout status deployment/argocd-server -n argocd --timeout=10s >/dev/null 2>&1; then
+            break
+        fi
+    fi
+    echo "Waiting for ArgoCD... ($i/120)"
+    sleep 5
+done
+
+echo "Configuring ArgoCD repository access..."
+{% if github_token is defined %}
+/usr/local/bin/k3s kubectl apply -f /tmp/argocd-apps/github-repo-secret.yaml
+{% endif %}
+
+echo "Creating ArgoCD applications..."
+for app_file in /tmp/argocd-apps/*-app.yaml; do
+    if [ -f "$app_file" ]; then
+        echo "Applying $app_file"
+        /usr/local/bin/k3s kubectl apply -f "$app_file"
+    fi
+done
+
+{% if argocd_admin_password is defined %}
+echo "Setting ArgoCD admin password..."
+BCRYPT_PASSWORD=$(python3 -c "import bcrypt; print(bcrypt.hashpw('{{ argocd_admin_password }}'.encode('utf-8'), bcrypt.gensalt()).decode('utf-8'))")
+/usr/local/bin/k3s kubectl -n argocd patch secret argocd-secret -p "{\"stringData\":{\"admin.password\":\"$BCRYPT_PASSWORD\",\"admin.passwordMtime\":\"$(date +%FT%T%Z)\"}}"
+{% endif %}
+
+echo "ArgoCD configuration complete!"
+
+# Optional: Create port-forward service for ArgoCD UI access
+{% if create_argocd_nodeport | default(false) %}
+cat <<EOF | /usr/local/bin/k3s kubectl apply -f -
+apiVersion: v1
+kind: Service
+metadata:
+  name: argocd-server-nodeport
+  namespace: argocd
+spec:
+  type: NodePort
+  ports:
+  - port: 80
+    targetPort: 8080
+    nodePort: {{ argocd_nodeport | default(30080) }}
+    name: http
+  - port: 443
+    targetPort: 8080
+    nodePort: {{ argocd_nodeport_https | default(30443) }}
+    name: https
+  selector:
+    app.kubernetes.io/name: argocd-server
+EOF
+echo "ArgoCD UI available at http://any-pi-ip:{{ argocd_nodeport | default(30080) }}"
+{% endif %}
