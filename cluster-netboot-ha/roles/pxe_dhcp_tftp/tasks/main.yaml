@@ -158,13 +158,32 @@
   ansible.builtin.debug:
     msg: "Final port 53 status: {{ port53_final.stdout_lines }}"
 
-- name: Create dnsmasq configuration
+- name: Remove any existing dnsmasq configuration
+  ansible.builtin.file:
+    path: /etc/dnsmasq.conf
+    state: absent
+  become: true
+
+- name: Remove dnsmasq configuration directory contents
+  ansible.builtin.shell: "rm -f /etc/dnsmasq.d/*"
+  become: true
+  ignore_errors: true
+
+- name: Create clean dnsmasq configuration
   ansible.builtin.template:
     src: dnsmasq.conf.j2
     dest: /etc/dnsmasq.conf
-    backup: true
+    mode: '0644'
   become: true
-  notify: restart dnsmasq
+
+- name: Test dnsmasq configuration syntax
+  ansible.builtin.command: "dnsmasq --test -C /etc/dnsmasq.conf"
+  register: dnsmasq_test
+  become: true
+
+- name: Display dnsmasq test results
+  ansible.builtin.debug:
+    msg: "dnsmasq config test: {{ dnsmasq_test.stdout_lines }}"
 
 - name: Start and enable dnsmasq
   ansible.builtin.systemd:

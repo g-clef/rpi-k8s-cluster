@@ -1,12 +1,18 @@
-# Bind to specific interface only
-interface={{ net_iface }}
-bind-interfaces
-
-# Disable DNS server completely - only provide DHCP and TFTP
+# Completely disable DNS function
 port=0
 
-# DHCP configuration  
-dhcp-range={{ dhcp_start }},{{ dhcp_end }},12h
+# Only bind to our specific interface, never localhost
+interface={{ net_iface }}
+bind-interfaces
+except-interface=lo
+
+# Disable all default behaviors that might bind to localhost  
+no-hosts
+no-resolv
+no-poll
+
+# DHCP only on our interface
+dhcp-range=interface:{{ net_iface }},{{ dhcp_start }},{{ dhcp_end }},12h
 dhcp-option=3,{{ router_ip }}
 dhcp-option=6,{{ dns_servers }}
 log-dhcp
@@ -15,12 +21,11 @@ log-dhcp
 enable-tftp
 tftp-root={{ tftp_root }}
 
-# Match Pi4 arch (firmware varies)
+# Pi4 architecture matching
 dhcp-match=set:rpi4,option:client-arch,29
 dhcp-match=set:rpi4,option:client-arch,11
 
-# Static leases for Raspberry Pis
+# Static DHCP leases for Raspberry Pis
 {% for host in groups['pi_servers'] + groups['pi_agents'] %}
-# {{ hostvars[host].hostname }}
 dhcp-host={{ hostvars[host].mac | lower }},{{ hostvars[host].ip }},set:rpi4
 {% endfor %}
