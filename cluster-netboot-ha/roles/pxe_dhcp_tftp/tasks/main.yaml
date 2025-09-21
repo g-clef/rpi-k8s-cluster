@@ -77,13 +77,49 @@
     state: present
   become: true
 
-- name: Stop default dnsmasq service (we'll configure it)
+- name: Stop dnsmasq if running
   ansible.builtin.systemd:
     name: dnsmasq
     state: stopped
-    enabled: false
   become: true
   ignore_errors: true
+
+- name: Check if systemd-resolved is running
+  ansible.builtin.systemd:
+    name: systemd-resolved
+  register: resolved_status
+  become: true
+  ignore_errors: true
+
+- name: Disable systemd-resolved DNS stub listener
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/resolved.conf
+    regexp: '^#?DNSStubListener='
+    line: 'DNSStubListener=no'
+    backup: true
+  become: true
+  when: resolved_status.status.ActiveState is defined
+  notify: restart systemd-resolved
+
+- name: Remove /etc/resolv.conf symlink if it exists
+  ansible.builtin.file:
+    path: /etc/resolv.conf
+    state: absent
+  become: true
+  when: resolved_status.status.ActiveState is defined
+
+- name: Create new /etc/resolv.conf
+  ansible.builtin.copy:
+    content: |
+      nameserver {{ router_ip }}
+      nameserver 8.8.8.8
+    dest: /etc/resolv.conf
+    backup: true
+  become: true
+  when: resolved_status.status.ActiveState is defined
+
+- name: Flush handlers to restart systemd-resolved
+  meta: flush_handlers
 
 - name: Create dnsmasq configuration
   ansible.builtin.template:
@@ -98,6 +134,7 @@
     name: dnsmasq
     state: started
     enabled: true
+    daemon_reload: true
   become: true
 
 # Install and configure dnsmasq
