@@ -1,5 +1,5 @@
 # Network Configuration
-net_iface: eth0
+net_iface: ens3
 lan_cidr: 192.168.1.0/24
 router_ip: 192.168.1.1
 dns_servers: 192.168.1.1,50.116.35.168

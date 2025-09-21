@@ -158,6 +158,20 @@
   ansible.builtin.debug:
     msg: "Final port 53 status: {{ port53_final.stdout_lines }}"
 
+- name: Detect actual network interface
+  ansible.builtin.shell: "ip route | grep default | awk '{print $5}' | head -1"
+  register: detected_interface
+  become: true
+
+- name: Display detected interface
+  ansible.builtin.debug:
+    msg: "Detected interface: {{ detected_interface.stdout }}, configured: {{ net_iface }}"
+
+- name: Override interface if detection differs
+  ansible.builtin.set_fact:
+    net_iface: "{{ detected_interface.stdout }}"
+  when: detected_interface.stdout != net_iface and detected_interface.stdout != ""
+
 - name: Remove any existing dnsmasq configuration
   ansible.builtin.file:
     path: /etc/dnsmasq.conf
