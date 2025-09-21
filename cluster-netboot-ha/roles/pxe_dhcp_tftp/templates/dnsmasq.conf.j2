@@ -2,12 +2,6 @@
 interface={{ net_iface }}
 bind-interfaces
 
-# Disable DNS server function on all interfaces except our target interface
-port=0
-# Enable DNS only on our interface
-interface={{ net_iface }}
-port=53
-
 # DHCP configuration
 dhcp-range={{ dhcp_start }},{{ dhcp_end }},12h
 dhcp-option=3,{{ router_ip }}
