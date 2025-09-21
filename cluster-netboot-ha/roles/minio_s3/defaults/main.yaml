@@ -1,0 +1,18 @@
+---
+# MinIO S3 Gateway Configuration
+minio_root_user: "admin"
+minio_root_password: "minio123"
+
+# NFS Configuration for MinIO data
+nfs_server: "{{ ansible_default_ipv4.address }}"
+minio_nfs_path: "/volume1/s3-data"
+
+# Service Configuration
+minio_service_type: "NodePort"  # Change to ClusterIP if you don't need external access
+minio_api_nodeport: 30900
+minio_console_nodeport: 30901
+
+# Optional Ingress Configuration
+minio_create_ingress: false
+minio_hostname: "minio.local"
+minio_console_hostname: "minio-console.local"

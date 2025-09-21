@@ -1,0 +1,72 @@
+---
+- name: Create MinIO namespace
+  copy:
+    dest: "{{ per_node_root_base }}/pi01/tmp/minio-namespace.yaml"
+    content: |
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: minio-system
+    mode: '0644'
+  become: true
+
+- name: Create MinIO deployment manifest
+  template:
+    src: minio-deployment.yaml.j2
+    dest: "{{ per_node_root_base }}/pi01/tmp/minio-deployment.yaml"
+    mode: '0644'
+  become: true
+
+- name: Create MinIO service manifest
+  template:
+    src: minio-service.yaml.j2
+    dest: "{{ per_node_root_base }}/pi01/tmp/minio-service.yaml"
+    mode: '0644'
+  become: true
+
+- name: Create MinIO installation script
+  copy:
+    dest: "{{ per_node_root_base }}/pi01/tmp/install-minio.sh"
+    content: |
+      #!/bin/bash
+      set -e
+
+      # Wait for k3s to be ready
+      for i in $(seq 1 60); do
+        /usr/local/bin/k3s kubectl get nodes && break || sleep 10
+      done
+
+      echo "Installing MinIO S3 Gateway..."
+      /usr/local/bin/k3s kubectl apply -f /tmp/minio-namespace.yaml
+      /usr/local/bin/k3s kubectl apply -f /tmp/minio-deployment.yaml
+      /usr/local/bin/k3s kubectl apply -f /tmp/minio-service.yaml
+
+      echo "MinIO installation complete"
+    mode: '0755'
+  become: true
+
+- name: Create MinIO systemd service
+  copy:
+    dest: "{{ per_node_root_base }}/pi01/etc/systemd/system/minio-install.service"
+    content: |
+      [Unit]
+      Description=Install MinIO S3 Gateway
+      After=k3s.service
+      Requires=k3s.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/tmp/install-minio.sh
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+    mode: '0644'
+  become: true
+
+- name: Enable MinIO installation service
+  file:
+    src: ../minio-install.service
+    dest: "{{ per_node_root_base }}/pi01/etc/systemd/system/multi-user.target.wants/minio-install.service"
+    state: link
+  become: true

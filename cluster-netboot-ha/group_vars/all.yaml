@@ -14,7 +14,11 @@ tftp_root: /srv/tftp
 work_dir: /srv/rpi-build
 raspios_url: "https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-11-19/2024-11-19-raspios-bookworm-arm64-lite.img.xz"
 
-
+# MinIO S3 Gateway Configuration
+minio_root_user: "admin"
+minio_root_password: "your-secure-password-here"
+minio_nfs_path: "/volume1/s3-data"  # Adjust to your Synology share path
+minio_service_type: "NodePort"  # Use NodePort for external access, ClusterIP for internal only
 k3s_version: v1.29.7+k3s1
 cluster_token: "CHANGE_ME_TO_A_RANDOM_LONG_STRING"
 cluster_cidr: 10.42.0.0/16

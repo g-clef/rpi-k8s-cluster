@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-service
+  namespace: minio-system
+spec:
+  type: {{ minio_service_type | default('ClusterIP') }}
+  ports:
+  - name: api
+    port: 9000
+    targetPort: 9000
+    {% if minio_service_type == 'NodePort' %}nodePort: {{ minio_api_nodeport | default(30900) }}{% endif %}
+  - name: console
+    port: 9001
+    targetPort: 9001
+    {% if minio_service_type == 'NodePort' %}nodePort: {{ minio_console_nodeport | default(30901) }}{% endif %}
+  selector:
+    app: minio-gateway
+---
+{% if minio_create_ingress | default(false) %}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minio-ingress
+  namespace: minio-system
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - host: {{ minio_hostname | default('minio.local') }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: minio-service
+            port:
+              number: 9000
+  - host: {{ minio_console_hostname | default('minio-console.local') }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: minio-service
+            port:
+              number: 9001
+{% endif %}
