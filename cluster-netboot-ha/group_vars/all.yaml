@@ -42,6 +42,25 @@ argocd_applications:
     namespace: api
     auto_sync: true
     auto_prune: true
+
+# KubeRay Configuration
+ray_cluster_name: "pi-ray-cluster"
+ray_namespace: "ray"
+ray_head_cpu: "1"      # Adjust based on Pi resources
+ray_head_memory: "2G"  # Adjust based on Pi resources
+ray_worker_replicas: 3
+ray_worker_cpu: "500m"
+ray_worker_memory: "1G"
+ray_dashboard_nodeport: 30265
+ray_client_nodeport: 30001
+ray_serve_nodeport: 30800
+
+# GPU Ray Workers Configuration
+ray_enable_gpu: true
+ray_gpu_worker_replicas: 1
+ray_gpu_worker_cpu: "2"      # Adjust based on GPU node resources
+ray_gpu_worker_memory: "4G"  # Adjust based on GPU node resources
+ray_gpus_per_worker: "1"
 k3s_version: v1.29.7+k3s1
 cluster_token: "CHANGE_ME_TO_A_RANDOM_LONG_STRING"
 cluster_cidr: 10.42.0.0/16

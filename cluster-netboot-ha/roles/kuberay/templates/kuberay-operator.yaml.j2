@@ -1,0 +1,109 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ray-system
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: rayclusters.ray.io
+spec:
+  group: ray.io
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            properties:
+              rayVersion:
+                type: string
+              headGroupSpec:
+                type: object
+              workerGroupSpecs:
+                type: array
+                items:
+                  type: object
+          status:
+            type: object
+  scope: Namespaced
+  names:
+    plural: rayclusters
+    singular: raycluster
+    kind: RayCluster
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kuberay-operator
+  namespace: ray-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kuberay-operator
+  template:
+    metadata:
+      labels:
+        app: kuberay-operator
+    spec:
+      serviceAccountName: kuberay-operator
+      containers:
+      - name: manager
+        image: quay.io/kuberay/operator:{{ kuberay_version | default('v1.0.0') }}
+        args:
+        - --leader-elect
+        env:
+        - name: WATCH_NAMESPACE
+          value: ""
+        ports:
+        - containerPort: 8080
+          name: metrics
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kuberay-operator
+  namespace: ray-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kuberay-operator
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints", "events", "configmaps", "secrets"]
+  verbs: ["*"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["*"]
+- apiGroups: ["ray.io"]
+  resources: ["rayclusters"]
+  verbs: ["*"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kuberay-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kuberay-operator
+subjects:
+- kind: ServiceAccount
+  name: kuberay-operator
+  namespace: ray-system

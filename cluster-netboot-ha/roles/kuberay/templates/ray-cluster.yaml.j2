@@ -1,0 +1,214 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ ray_namespace | default('ray') }}
+---
+apiVersion: ray.io/v1alpha1
+kind: RayCluster
+metadata:
+  name: {{ ray_cluster_name | default('ray-cluster') }}
+  namespace: {{ ray_namespace | default('ray') }}
+spec:
+  rayVersion: "{{ ray_version | default('2.8.0') }}"
+  enableInTreeAutoscaling: {{ ray_autoscaling | default(true) }}
+  autoscalerOptions:
+    upscalingMode: Default
+    idleTimeoutSeconds: 60
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+      requests:
+        cpu: "500m"
+        memory: "512Mi"
+  headGroupSpec:
+    serviceType: ClusterIP
+    rayStartParams:
+      dashboard-host: '0.0.0.0'
+      port: '6379'
+      object-manager-port: '8076'
+      node-manager-port: '8077'
+      dashboard-port: '8265'
+      redis-password: '{{ ray_redis_password | default("") }}'
+    template:
+      metadata:
+        labels:
+          rayCluster: {{ ray_cluster_name | default('ray-cluster') }}
+          rayNodeType: head
+          groupName: headgroup
+      spec:
+        containers:
+        - name: ray-head
+          image: rayproject/ray:{{ ray_version | default('2.8.0') }}-py310
+          ports:
+          - containerPort: 6379
+            name: gcs-server
+          - containerPort: 8265
+            name: dashboard
+          - containerPort: 10001
+            name: client
+          - containerPort: 8000
+            name: serve
+          resources:
+            limits:
+              cpu: "{{ ray_head_cpu | default('2') }}"
+              memory: "{{ ray_head_memory | default('4G') }}"
+            requests:
+              cpu: "{{ ray_head_cpu | default('2') }}"
+              memory: "{{ ray_head_memory | default('4G') }}"
+          env:
+          - name: RAY_DISABLE_DOCKER_CPU_WARNING
+            value: "1"
+          - name: TYPE
+            value: "head"
+          - name: CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                containerName: ray-head
+                resource: requests.cpu
+          - name: CPU_LIMITS
+            valueFrom:
+              resourceFieldRef:
+                containerName: ray-head
+                resource: limits.cpu
+          - name: MEMORY_REQUESTS
+            valueFrom:
+              resourceFieldRef:
+                containerName: ray-head
+                resource: requests.memory
+          - name: MEMORY_LIMITS
+            valueFrom:
+              resourceFieldRef:
+                containerName: ray-head
+                resource: limits.memory
+  workerGroupSpecs:
+  # CPU-only workers for general workloads
+  - replicas: {{ ray_worker_replicas | default(2) }}
+    minReplicas: {{ ray_worker_min_replicas | default(1) }}
+    maxReplicas: {{ ray_worker_max_replicas | default(5) }}
+    groupName: cpu-group
+    rayStartParams:
+      redis-password: '{{ ray_redis_password | default("") }}'
+    template:
+      metadata:
+        labels:
+          rayCluster: {{ ray_cluster_name | default('ray-cluster') }}
+          rayNodeType: worker
+          groupName: cpu-group
+      spec:
+        # Schedule on non-GPU nodes
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+              - matchExpressions:
+                - key: node-type
+                  operator: NotIn
+                  values: ["gpu"]
+        initContainers:
+        - name: init
+          image: busybox:1.28
+          command: ['sh', '-c', "until nslookup {{ ray_cluster_name | default('ray-cluster') }}-head-svc.{{ ray_namespace | default('ray') }}.svc.cluster.local; do echo waiting for myservice; sleep 2; done"]
+        containers:
+        - name: ray-worker
+          image: rayproject/ray:{{ ray_version | default('2.8.0') }}-py310
+          resources:
+            limits:
+              cpu: "{{ ray_worker_cpu | default('1') }}"
+              memory: "{{ ray_worker_memory | default('2G') }}"
+            requests:
+              cpu: "{{ ray_worker_cpu | default('1') }}"
+              memory: "{{ ray_worker_memory | default('2G') }}"
+          env:
+          - name: RAY_DISABLE_DOCKER_CPU_WARNING
+            value: "1"
+          - name: TYPE
+            value: "worker"
+          - name: CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                containerName: ray-worker
+                resource: requests.cpu
+          - name: CPU_LIMITS
+            valueFrom:
+              resourceFieldRef:
+                containerName: ray-worker
+                resource: limits.cpu
+          - name: MEMORY_REQUESTS
+            valueFrom:
+              resourceFieldRef:
+                containerName: ray-worker
+                resource: requests.memory
+          - name: MEMORY_LIMITS
+            valueFrom:
+              resourceFieldRef:
+                containerName: ray-worker
+                resource: limits.memory
+{% if ray_enable_gpu | default(false) %}
+  # GPU workers for ML/AI workloads
+  - replicas: {{ ray_gpu_worker_replicas | default(1) }}
+    minReplicas: {{ ray_gpu_worker_min_replicas | default(0) }}
+    maxReplicas: {{ ray_gpu_worker_max_replicas | default(1) }}
+    groupName: gpu-group
+    rayStartParams:
+      redis-password: '{{ ray_redis_password | default("") }}'
+      num-gpus: "{{ ray_gpus_per_worker | default('1') }}"
+    template:
+      metadata:
+        labels:
+          rayCluster: {{ ray_cluster_name | default('ray-cluster') }}
+          rayNodeType: worker
+          groupName: gpu-group
+      spec:
+        # Schedule on GPU node and tolerate GPU taint
+        nodeSelector:
+          node-type: gpu
+        tolerations:
+        - key: {{ gpu_taint.split('=')[0] }}
+          operator: Equal
+          value: {{ gpu_taint.split('=')[1].split(':')[0] }}
+          effect: {{ gpu_taint.split(':')[1] }}
+        initContainers:
+        - name: init
+          image: busybox:1.28
+          command: ['sh', '-c', "until nslookup {{ ray_cluster_name | default('ray-cluster') }}-head-svc.{{ ray_namespace | default('ray') }}.svc.cluster.local; do echo waiting for myservice; sleep 2; done"]
+        containers:
+        - name: ray-worker
+          image: rayproject/ray-ml:{{ ray_version | default('2.8.0') }}-gpu
+          resources:
+            limits:
+              cpu: "{{ ray_gpu_worker_cpu | default('4') }}"
+              memory: "{{ ray_gpu_worker_memory | default('8G') }}"
+              nvidia.com/gpu: "{{ ray_gpus_per_worker | default('1') }}"
+            requests:
+              cpu: "{{ ray_gpu_worker_cpu | default('4') }}"
+              memory: "{{ ray_gpu_worker_memory | default('8G') }}"
+              nvidia.com/gpu: "{{ ray_gpus_per_worker | default('1') }}"
+          env:
+          - name: RAY_DISABLE_DOCKER_CPU_WARNING
+            value: "1"
+          - name: TYPE
+            value: "worker"
+          - name: CUDA_VISIBLE_DEVICES
+            value: "0"
+          - name: CPU_REQUEST
+            valueFrom:
+              resourceFieldRef:
+                containerName: ray-worker
+                resource: requests.cpu
+          - name: CPU_LIMITS
+            valueFrom:
+              resourceFieldRef:
+                containerName: ray-worker
+                resource: limits.cpu
+          - name: MEMORY_REQUESTS
+            valueFrom:
+              resourceFieldRef:
+                containerName: ray-worker
+                resource: requests.memory
+          - name: MEMORY_LIMITS
+            valueFrom:
+              resourceFieldRef:
+                containerName: ray-worker
+                resource: limits.memory
+{% endif %}

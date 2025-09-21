@@ -7,3 +7,4 @@
     - k3s_pi_agents
     - minio_s3
     - argocd_apps
+    - kuberay

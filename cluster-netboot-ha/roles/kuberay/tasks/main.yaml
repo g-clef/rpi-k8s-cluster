@@ -1,0 +1,61 @@
+---
+- name: Create KubeRay manifests directory
+  file:
+    path: "{{ per_node_root_base }}/pi01/tmp/kuberay"
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Create KubeRay operator manifest
+  template:
+    src: kuberay-operator.yaml.j2
+    dest: "{{ per_node_root_base }}/pi01/tmp/kuberay/kuberay-operator.yaml"
+    mode: '0644'
+  become: true
+
+- name: Create RayCluster manifest
+  template:
+    src: ray-cluster.yaml.j2
+    dest: "{{ per_node_root_base }}/pi01/tmp/kuberay/ray-cluster.yaml"
+    mode: '0644'
+  become: true
+
+- name: Create Ray services manifest
+  template:
+    src: ray-services.yaml.j2
+    dest: "{{ per_node_root_base }}/pi01/tmp/kuberay/ray-services.yaml"
+    mode: '0644'
+  become: true
+
+- name: Create KubeRay installation script
+  template:
+    src: install-kuberay.sh.j2
+    dest: "{{ per_node_root_base }}/pi01/tmp/install-kuberay.sh"
+    mode: '0755'
+  become: true
+
+- name: Create KubeRay systemd service
+  copy:
+    dest: "{{ per_node_root_base }}/pi01/etc/systemd/system/kuberay-install.service"
+    content: |
+      [Unit]
+      Description=Install KubeRay and Ray Cluster
+      After=firstboot-ops.service
+      Requires=firstboot-ops.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/tmp/install-kuberay.sh
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+    mode: '0644'
+  become: true
+
+- name: Enable KubeRay installation service
+  file:
+    src: ../kuberay-install.service
+    dest: "{{ per_node_root_base }}/pi01/etc/systemd/system/multi-user.target.wants/kuberay-install.service"
+    state: link
+  become: true

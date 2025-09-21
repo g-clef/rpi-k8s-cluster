@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ ray_cluster_name | default('ray-cluster') }}-head-nodeport
+  namespace: {{ ray_namespace | default('ray') }}
+spec:
+  type: NodePort
+  selector:
+    rayCluster: {{ ray_cluster_name | default('ray-cluster') }}
+    rayNodeType: head
+  ports:
+  - name: client
+    port: 10001
+    targetPort: 10001
+    nodePort: {{ ray_client_nodeport | default(30001) }}
+  - name: dashboard
+    port: 8265
+    targetPort: 8265
+    nodePort: {{ ray_dashboard_nodeport | default(30265) }}
+  - name: serve
+    port: 8000
+    targetPort: 8000
+    nodePort: {{ ray_serve_nodeport | default(30800) }}
+---
+{% if ray_create_ingress | default(false) %}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ ray_cluster_name | default('ray-cluster') }}-dashboard
+  namespace: {{ ray_namespace | default('ray') }}
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - host: {{ ray_dashboard_hostname | default('ray-dashboard.local') }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: {{ ray_cluster_name | default('ray-cluster') }}-head-svc
+            port:
+              number: 8265
+{% endif %}

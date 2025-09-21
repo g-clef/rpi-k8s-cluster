@@ -1,0 +1,41 @@
+---
+# KubeRay Configuration
+kuberay_version: "v1.0.0"
+ray_version: "2.8.0"
+
+# Ray Cluster Configuration
+ray_cluster_name: "ray-cluster"
+ray_namespace: "ray"
+ray_autoscaling: true
+
+# Ray Head Node Configuration
+ray_head_cpu: "2"
+ray_head_memory: "4G"
+
+# Ray Worker Node Configuration
+ray_worker_replicas: 2
+ray_worker_min_replicas: 1
+ray_worker_max_replicas: 5
+ray_worker_cpu: "1"
+ray_worker_memory: "2G"
+
+# External Access Configuration
+ray_client_nodeport: 30001
+ray_dashboard_nodeport: 30265
+ray_serve_nodeport: 30800
+
+# Optional Ingress Configuration
+ray_create_ingress: false
+ray_dashboard_hostname: "ray-dashboard.local"
+
+# Security (optional)
+ray_redis_password: ""
+
+# GPU Configuration
+ray_enable_gpu: true
+ray_gpu_worker_replicas: 1
+ray_gpu_worker_min_replicas: 0
+ray_gpu_worker_max_replicas: 1
+ray_gpu_worker_cpu: "4"
+ray_gpu_worker_memory: "8G"
+ray_gpus_per_worker: "1"

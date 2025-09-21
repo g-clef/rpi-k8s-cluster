@@ -1,0 +1,48 @@
+#!/bin/bash
+set -e
+
+echo "Waiting for k3s to be ready..."
+for i in $(seq 1 60); do
+    /usr/local/bin/k3s kubectl get nodes && break || sleep 10
+done
+
+echo "Installing KubeRay operator..."
+/usr/local/bin/k3s kubectl apply -f /tmp/kuberay/kuberay-operator.yaml
+
+echo "Waiting for KubeRay operator to be ready..."
+for i in $(seq 1 60); do
+    if /usr/local/bin/k3s kubectl get deployment kuberay-operator -n ray-system >/dev/null 2>&1; then
+        if /usr/local/bin/k3s kubectl rollout status deployment/kuberay-operator -n ray-system --timeout=10s >/dev/null 2>&1; then
+            break
+        fi
+    fi
+    echo "Waiting for KubeRay operator... ($i/60)"
+    sleep 10
+done
+
+echo "Creating Ray cluster..."
+/usr/local/bin/k3s kubectl apply -f /tmp/kuberay/ray-cluster.yaml
+
+echo "Creating Ray external services..."
+/usr/local/bin/k3s kubectl apply -f /tmp/kuberay/ray-services.yaml
+
+echo "Waiting for Ray cluster to be ready..."
+for i in $(seq 1 120); do
+    if /usr/local/bin/k3s kubectl get raycluster {{ ray_cluster_name | default('ray-cluster') }} -n {{ ray_namespace | default('ray') }} >/dev/null 2>&1; then
+        STATUS=$(/usr/local/bin/k3s kubectl get raycluster {{ ray_cluster_name | default('ray-cluster') }} -n {{ ray_namespace | default('ray') }} -o jsonpath='{.status.state}' 2>/dev/null || echo "")
+        if [ "$STATUS" = "ready" ]; then
+            break
+        fi
+    fi
+    echo "Waiting for Ray cluster to be ready... ($i/120)"
+    sleep 10
+done
+
+echo "KubeRay installation complete!"
+echo "Ray Dashboard available at: http://any-pi-ip:{{ ray_dashboard_nodeport | default(30265) }}"
+echo "Ray Client endpoint: ray://any-pi-ip:{{ ray_client_nodeport | default(30001) }}"
+echo "Ray Serve endpoint: http://any-pi-ip:{{ ray_serve_nodeport | default(30800) }}"
+
+# Print cluster status
+echo "Ray cluster status:"
+/usr/local/bin/k3s kubectl get raycluster {{ ray_cluster_name | default('ray-cluster') }} -n {{ ray_namespace | default('ray') }}
