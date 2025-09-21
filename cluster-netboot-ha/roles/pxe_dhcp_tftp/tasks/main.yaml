@@ -84,10 +84,25 @@
   become: true
   ignore_errors: true
 
-- name: Check if systemd-resolved is running
+- name: Check what's using port 53
+  ansible.builtin.shell: "netstat -tulnp | grep :53 || true"
+  register: port53_check
+  become: true
+
+- name: Display what's using port 53
+  ansible.builtin.debug:
+    msg: "Port 53 usage: {{ port53_check.stdout_lines }}"
+
+- name: Stop systemd-resolved completely
   ansible.builtin.systemd:
     name: systemd-resolved
-  register: resolved_status
+    state: stopped
+    enabled: false
+  become: true
+  ignore_errors: true
+
+- name: Kill any remaining systemd-resolved processes
+  ansible.builtin.shell: "pkill -f systemd-resolved || true"
   become: true
   ignore_errors: true
 
@@ -98,15 +113,12 @@
     line: 'DNSStubListener=no'
     backup: true
   become: true
-  when: resolved_status.status.ActiveState is defined
-  notify: restart systemd-resolved
 
 - name: Remove /etc/resolv.conf symlink if it exists
   ansible.builtin.file:
     path: /etc/resolv.conf
     state: absent
   become: true
-  when: resolved_status.status.ActiveState is defined
 
 - name: Create new /etc/resolv.conf
   ansible.builtin.copy:
@@ -116,10 +128,19 @@
     dest: /etc/resolv.conf
     backup: true
   become: true
-  when: resolved_status.status.ActiveState is defined
 
-- name: Flush handlers to restart systemd-resolved
-  meta: flush_handlers
+- name: Wait a moment for ports to be released
+  ansible.builtin.pause:
+    seconds: 3
+
+- name: Check port 53 is now free
+  ansible.builtin.shell: "netstat -tulnp | grep :53 || true"
+  register: port53_after
+  become: true
+
+- name: Display port 53 status after cleanup
+  ansible.builtin.debug:
+    msg: "Port 53 after cleanup: {{ port53_after.stdout_lines }}"
 
 - name: Create dnsmasq configuration
   ansible.builtin.template:

@@ -1,6 +1,10 @@
-# Bind to specific interface only
+# Bind to specific interface only - do not bind to localhost
 interface={{ net_iface }}
 bind-interfaces
+except-interface=lo
+
+# Explicitly do not listen on any address except our interface
+listen-address={{ ansible_default_ipv4.address }}
 
 # DHCP configuration
 dhcp-range={{ dhcp_start }},{{ dhcp_end }},12h
