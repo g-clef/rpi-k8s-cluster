@@ -47,36 +47,22 @@ github_username: "{{ secrets.github_username | default('') }}"
 github_token: "{{ secrets.github_token | default('') }}"
 docker_registry_secret: "{{ secrets.docker_registry_secret | default({}) }}"
 
-# Your Applications - Update these with your actual repos
+# ArgoCD App of Apps Configuration
+# This allows you to manage all cluster components via Git instead of Ansible
+argocd_apps_repo_url: "{{ secrets.argocd_apps_repo_url | default('https://github.com/your-username/argocd-apps.git') }}"
+argocd_apps_repo_branch: "{{ secrets.argocd_apps_repo_branch | default('main') }}"
+argocd_apps_repo_path: "{{ secrets.argocd_apps_repo_path | default('.') }}"
+
+# App of Apps - Single application that manages all others from Git
 argocd_applications:
-  - name: my-web-app
-    repo_url: https://github.com/your-username/your-web-app.git
-    branch: main
-    path: k8s
-    namespace: web-apps
+  - name: app-of-apps
+    repo_url: "{{ argocd_apps_repo_url }}"
+    branch: "{{ argocd_apps_repo_branch }}"
+    path: "{{ argocd_apps_repo_path }}"
+    namespace: argocd
     auto_sync: true
     auto_prune: true
-  - name: my-api
-    repo_url: https://github.com/your-username/your-api.git
-    branch: main
-    path: deploy
-    namespace: api
-    auto_sync: true
-    auto_prune: true
-  - name: ray-cluster
-    repo_url: "{{ ray_cluster_repo_url | default('https://github.com/your-username/pi-ray-cluster.git') }}"
-    branch: "{{ ray_cluster_repo_branch | default('main') }}"
-    path: "{{ ray_cluster_repo_path | default('manifests') }}"
-    namespace: "{{ ray_namespace | default('ray') }}"
-    auto_sync: true
-    auto_prune: true
-
-# KubeRay GitOps Configuration
-ray_cluster_repo_url: "{{ secrets.ray_cluster_repo_url | default('https://github.com/your-username/pi-ray-cluster.git') }}"
-ray_cluster_repo_branch: "{{ secrets.ray_cluster_repo_branch | default('main') }}"
-ray_cluster_repo_path: "{{ secrets.ray_cluster_repo_path | default('manifests') }}"
-ray_namespace: "ray"
-
-# KubeRay Operator Configuration (only operator is installed by Ansible)
-kuberay_operator_version: "{{ secrets.kuberay_operator_version | default('v1.0.0') }}"
-kuberay_operator_namespace: "ray-system"
+    sync_options:
+      - CreateNamespace=true
+    # This application will discover and deploy other applications, operators, and infrastructure
+    directory_recurse: true
