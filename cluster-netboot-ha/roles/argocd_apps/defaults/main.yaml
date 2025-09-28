@@ -1,6 +1,6 @@
 ---
 # ArgoCD Configuration
-argocd_admin_password: "admin123"  # Change this!
+argocd_admin_password: "change-me"  # Override in secrets.yaml
 create_argocd_nodeport: true
 argocd_nodeport: 30080
 argocd_nodeport_https: 30443
@@ -15,25 +15,45 @@ argocd_nodeport_https: 30443
 #   username: "your-docker-username"
 #   password: "your-docker-password"
 
-# Example ArgoCD Applications Configuration
-argocd_applications:
-  - name: example-app
-    repo_url: https://github.com/your-username/your-k8s-app.git
-    branch: main
-    path: k8s  # Directory containing Kubernetes manifests
-    namespace: default
-    auto_sync: true
-    auto_prune: true
-    create_namespace: true
-  # - name: helm-app-example
-  #   repo_url: https://github.com/your-username/your-helm-app.git
-  #   branch: main
-  #   path: helm-chart
-  #   namespace: my-app
-  #   helm:
-  #     values_file: values.yaml
-  #     values: |
-  #       image:
-  #         tag: latest
-  #       service:
-  #         type: NodePort
+# ArgoCD Applications Configuration
+# NOTE: The actual app-of-apps configuration is defined in group_vars/all.yaml
+# This default is overridden by the configuration there.
+argocd_applications: []
+
+# Example individual application configurations for reference:
+# argocd_applications:
+#   - name: example-app
+#     repo_url: https://github.com/your-username/your-k8s-app.git
+#     branch: main
+#     path: k8s  # Directory containing Kubernetes manifests
+#     namespace: default
+#     auto_sync: true
+#     auto_prune: true
+#     sync_options:
+#       - CreateNamespace=true
+#   - name: helm-app-example
+#     repo_url: https://github.com/your-username/your-helm-app.git
+#     branch: main
+#     path: helm-chart
+#     namespace: my-app
+#     auto_sync: true
+#     auto_prune: true
+#     sync_options:
+#       - CreateNamespace=true
+#     helm:
+#       values_file: values.yaml
+#       values: |
+#         image:
+#           tag: latest
+#         service:
+#           type: NodePort
+#   - name: app-of-apps-example
+#     repo_url: https://github.com/your-username/your-argocd-apps.git
+#     branch: main
+#     path: .
+#     namespace: argocd
+#     auto_sync: true
+#     auto_prune: true
+#     directory_recurse: true
+#     sync_options:
+#       - CreateNamespace=true

@@ -11,6 +11,10 @@ spec:
     repoURL: {{ item.repo_url }}
     targetRevision: {{ item.branch | default('main') }}
     path: {{ item.path | default('.') }}
+    {% if item.directory_recurse is defined and item.directory_recurse %}
+    directory:
+      recurse: true
+    {% endif %}
     {% if item.helm is defined %}
     helm:
       {% if item.helm.values_file is defined %}
@@ -27,43 +31,17 @@ spec:
     namespace: {{ item.namespace | default('default') }}
   syncPolicy:
     automated:
-      prune: {{ item.auto_prune | default(true) }}
-      selfHeal: {{ item.auto_sync | default(true) }}
+      prune: {{ item.auto_prune | default(true) | lower }}
+      selfHeal: {{ item.auto_sync | default(true) | lower }}
       allowEmpty: false
     syncOptions:
-      - Validate=false
-      - CreateNamespace={{ item.create_namespace | default(true) }}
-      - PrunePropagationPolicy=foreground
-      - PruneLast=true
+      {% for option in item.sync_options | default(['CreateNamespace=true', 'PrunePropagationPolicy=foreground', 'PruneLast=true']) %}
+      - {{ option }}
+      {% endfor %}
     retry:
       limit: 5
       backoff:
         duration: 5s
         factor: 2
         maxDuration: 3m
----
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: {{ item.name }}
-  namespace: argocd
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: {{ item.repo_url }}
-    targetRevision: {{ item.branch | default('main') }}
-    path: {{ item.path | default('.') }}
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: {{ item.namespace }}
-  syncPolicy:
-    automated:
-      prune: {{ item.auto_prune | default(true) | lower }}
-      selfHeal: {{ item.auto_sync | default(true) | lower }}
-    syncOptions:
-    - CreateNamespace=true
-    - PrunePropagationPolicy=foreground
-    - PruneLast=true
   revisionHistoryLimit: 10

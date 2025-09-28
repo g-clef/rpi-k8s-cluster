@@ -34,6 +34,8 @@ After the ansible deployment completes, ArgoCD is accessible at:
 - **Username**: `admin`
 - **Password**: Set in `secrets.yaml` as `argocd_admin_password` (default: "change-me")
 
+**Note**: ArgoCD is automatically installed during the K3s server deployment via the `firstboot-ops.service`, not through a separate ArgoCD role. The `argocd_apps` role then configures the applications and access.
+
 ### Required Secrets Configuration
 
 Before deploying applications, configure these secrets in your `secrets.yaml`:
@@ -409,28 +411,76 @@ apps/
 
 ```yaml
 # Production application
-source:
-  helm:
-    valueFiles:
-      - values-production.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: my-app-production
+  namespace: argocd
+spec:
+  source:
+    repoURL: https://github.com/your-username/helm-app.git
+    targetRevision: main
+    path: .
+    helm:
+      valueFiles:
+        - values-production.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: my-app-prod
 
+---
 # Development application  
-source:
-  helm:
-    valueFiles:
-      - values-development.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: my-app-development
+  namespace: argocd
+spec:
+  source:
+    repoURL: https://github.com/your-username/helm-app.git
+    targetRevision: main
+    path: .
+    helm:
+      valueFiles:
+        - values-development.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: my-app-dev
 ```
 
 **Using different Git branches**:
 
 ```yaml
-# Production uses main branch
-source:
-  targetRevision: main
+# Production application using main branch
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: my-app-production
+  namespace: argocd
+spec:
+  source:
+    repoURL: https://github.com/your-username/my-app.git
+    targetRevision: main
+    path: k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: my-app-prod
 
-# Development uses develop branch
-source:
-  targetRevision: develop
+---
+# Development application using develop branch
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: my-app-development
+  namespace: argocd
+spec:
+  source:
+    repoURL: https://github.com/your-username/my-app.git
+    targetRevision: develop
+    path: k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: my-app-dev
 ```
 
 ## Best Practices
