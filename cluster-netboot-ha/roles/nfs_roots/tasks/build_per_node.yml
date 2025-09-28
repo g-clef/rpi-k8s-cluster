@@ -86,6 +86,101 @@
       tmpfs /tmp     tmpfs defaults,noatime,nosuid,size={{ tmpfs_tmp_size }}     0 0
   become: true
 
+# --- SSH Configuration ---
+
+- name: Enable SSH service on Pi nodes
+  ansible.builtin.file:
+    path: "{{ node_root }}/etc/systemd/system/multi-user.target.wants/ssh.service"
+    src: "/lib/systemd/system/ssh.service"
+    state: link
+  become: true
+
+- name: Create SSH host keys directory if missing
+  ansible.builtin.file:
+    path: "{{ node_root }}/etc/ssh"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Configure SSH to allow root login (for initial setup)
+  ansible.builtin.lineinfile:
+    path: "{{ node_root }}/etc/ssh/sshd_config"
+    regexp: '^#?PermitRootLogin'
+    line: 'PermitRootLogin yes'
+    create: true
+  become: true
+
+- name: Enable password authentication in SSH (can be disabled later)
+  ansible.builtin.lineinfile:
+    path: "{{ node_root }}/etc/ssh/sshd_config"
+    regexp: '^#?PasswordAuthentication'
+    line: 'PasswordAuthentication yes'
+    create: true
+  become: true
+
+# --- Pi User Configuration ---
+
+- name: Read current user's authorized_keys if available
+  ansible.builtin.slurp:
+    src: "{{ ansible_env.HOME }}/.ssh/authorized_keys"
+  register: ansible_user_authorized_keys
+  ignore_errors: true
+  run_once: true
+
+- name: Set final authorized keys list
+  ansible.builtin.set_fact:
+    final_authorized_keys: >-
+      {{ 
+        pi_ssh_authorized_keys 
+        if (pi_ssh_authorized_keys | length > 0) 
+        else (
+          (ansible_user_authorized_keys.content | b64decode).split('\n') 
+          | select('match', '^ssh-') 
+          | list
+          if ansible_user_authorized_keys is succeeded 
+          else []
+        )
+      }}
+
+- name: Create pi user with sudo privileges
+  ansible.builtin.user:
+    name: "{{ pi_ssh_user }}"
+    password: "{{ pi_ssh_password | password_hash('sha512') }}"
+    groups: sudo
+    shell: /bin/bash
+    create_home: true
+    home: "/home/{{ pi_ssh_user }}"
+  vars:
+    ansible_chroot: "{{ node_root }}"
+  become: true
+
+- name: Add pi user to sudoers for passwordless sudo
+  ansible.builtin.lineinfile:
+    path: "{{ node_root }}/etc/sudoers"
+    line: "{{ pi_ssh_user }} ALL=(ALL) NOPASSWD:ALL"
+    validate: 'visudo -cf %s'
+  become: true
+
+- name: Create .ssh directory for pi user
+  ansible.builtin.file:
+    path: "{{ node_root }}/home/{{ pi_ssh_user }}/.ssh"
+    state: directory
+    mode: "0700"
+    owner: 1000
+    group: 1000
+  become: true
+  when: final_authorized_keys | length > 0
+
+- name: Add authorized keys for pi user
+  ansible.builtin.copy:
+    content: "{{ final_authorized_keys | join('\n') }}\n"
+    dest: "{{ node_root }}/home/{{ pi_ssh_user }}/.ssh/authorized_keys"
+    mode: "0600"
+    owner: 1000
+    group: 1000
+  become: true
+  when: final_authorized_keys | length > 0
+
 # --- TFTP boot files: shared + per-node cmdline.txt ---
 
 - name: Determine boot source directory

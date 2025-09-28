@@ -27,6 +27,11 @@ service_cidr: 10.43.0.0/16
 tmpfs_var_log_size: 64m
 tmpfs_tmp_size: 256m
 
+# SSH Configuration for Pi nodes
+pi_ssh_user: pi
+pi_ssh_password: "{{ secrets.pi_ssh_password | default(ansible_become_password) | default('raspberry') }}"
+pi_ssh_authorized_keys: "{{ secrets.pi_ssh_authorized_keys | default([]) }}"
+
 pi_default_labels:
   role: worker
   arch: arm64
