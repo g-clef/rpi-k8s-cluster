@@ -216,21 +216,22 @@
     content: |
       # Per-node netboot configuration for {{ node_name }}
       arm_64bit=1
-      enable_uart=1
-      uart_2ndstage=1
+      enable_uart=0
+      uart_2ndstage=0
       gpu_mem=16
       program_usb_boot_mode=1
       dtparam=audio=off
       dtparam=spi=off
       dtparam=i2c=off
       enable_ssh=1
-      boot_delay=2
+      boot_delay=3
       dtoverlay=disable-wifi
       dtoverlay=disable-bt
-      # Fix kgdboc deferred issues
-      init_uart_baud=115200
-      init_uart_clock=48000000
-      force_turbo=0
+      # Completely disable UART and debug features
+      disable_splash=1
+      avoid_warnings=1
+      kernel_address=0x200000
+      kernel_old=1
     mode: "0644"
   become: true
 
