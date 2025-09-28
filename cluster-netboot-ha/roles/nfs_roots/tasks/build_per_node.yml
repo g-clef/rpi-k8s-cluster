@@ -224,9 +224,13 @@
       dtparam=spi=off
       dtparam=i2c=off
       enable_ssh=1
-      boot_delay=1
+      boot_delay=2
       dtoverlay=disable-wifi
       dtoverlay=disable-bt
+      # Fix kgdboc deferred issues
+      init_uart_baud=115200
+      init_uart_clock=48000000
+      force_turbo=0
     mode: "0644"
   become: true
 
