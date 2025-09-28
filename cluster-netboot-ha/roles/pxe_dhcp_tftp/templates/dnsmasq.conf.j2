@@ -37,3 +37,6 @@ dhcp-option=tag:rpi4,option:tftp-server,{{ ansible_default_ipv4.address | defaul
 dhcp-host={{ hostvars[host].mac | lower }},{{ hostvars[host].ip }},set:rpi4,set:{{ hostvars[host].hostname }}
 dhcp-boot=tag:{{ hostvars[host].hostname }},{{ hostvars[host].mac | lower | replace(':','-') }}/bootcode.bin
 {% endfor %}
+
+# Ensure all Pi nodes can access common boot files in TFTP root
+pxe-service=0,"Raspberry Pi Boot"

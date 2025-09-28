@@ -67,6 +67,26 @@
   changed_when: "'<<CHANGED>>' in rsync_result.stdout"
   become: true
 
+# Download additional Pi 4 specific boot files that may not be in firmware
+- name: Download Pi 4 specific boot files
+  ansible.builtin.get_url:
+    url: "https://github.com/raspberrypi/firmware/raw/master/boot/{{ item }}"
+    dest: "{{ tftp_root }}/{{ item }}"
+    mode: "0644"
+    force: false
+  loop:
+    - armstub8-gic.bin
+    - kernel8.img
+    - bcm2711-rpi-4-b.dtb
+    - bcm2711-rpi-400.dtb
+    - bcm2711-rpi-cm4.dtb
+  register: additional_files
+  retries: 3
+  delay: 5
+  until: additional_files is succeeded
+  become: true
+  ignore_errors: true
+
 - name: Verify essential boot files exist in TFTP root
   ansible.builtin.stat:
     path: "{{ tftp_root }}/{{ item }}"
@@ -75,6 +95,8 @@
     - bootcode.bin
     - start4.elf
     - fixup4.dat
+    - armstub8-gic.bin
+    - kernel8.img
   failed_when: not boot_files_check.stat.exists
   become: true
 

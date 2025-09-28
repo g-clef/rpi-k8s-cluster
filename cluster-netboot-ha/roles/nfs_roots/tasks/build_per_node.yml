@@ -201,6 +201,21 @@
   changed_when: "'<<CHANGED>>' in rsync_boot.stdout"
   become: true
 
+- name: Copy additional required boot files from TFTP root to node directory
+  ansible.builtin.copy:
+    src: "{{ tftp_root }}/{{ item }}"
+    dest: "{{ node_tftp }}/{{ item }}"
+    remote_src: true
+    mode: "0644"
+  loop:
+    - armstub8-gic.bin
+    - kernel8.img
+    - bcm2711-rpi-4-b.dtb
+    - bcm2711-rpi-400.dtb
+    - bcm2711-rpi-cm4.dtb
+  become: true
+  ignore_errors: true
+
 - name: Write per-node cmdline.txt (NFS root)
   ansible.builtin.template:
     src: cmdline.txt.j2
