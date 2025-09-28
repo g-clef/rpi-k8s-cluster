@@ -16,30 +16,29 @@
     node_upper: "{{ upper_root_dir }}/{{ node_name }}"
     node_work:  "{{ work_root_dir  }}/{{ node_name }}"
 
-- name: Prepare directories (mountpoint and per-node upper/work, TFTP)
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: directory
-    mode: "0755"
-  loop:
-    - "{{ node_root }}"
-    - "{{ node_upper }}"
-    - "{{ node_work }}"
-    - "{{ node_tftp }}"
-  become: true
+- name: Setup overlay filesystem infrastructure
+  block:
+    - name: Prepare directories (mountpoint and per-node upper/work, TFTP)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ node_root }}"
+        - "{{ node_upper }}"
+        - "{{ node_work }}"
+        - "{{ node_tftp }}"
 
-# Ensure overlayfs module exists/enabled
-- name: Load overlayfs kernel module (no-fail if already loaded)
-  ansible.builtin.command: modprobe overlay
-  changed_when: false
-  failed_when: false
-  become: true
+    - name: Load overlayfs kernel module (no-fail if already loaded)
+      ansible.builtin.command: modprobe overlay
+      changed_when: false
+      failed_when: false
 
-- name: Persist overlay module at boot
-  ansible.builtin.copy:
-    dest: /etc/modules-load.d/overlay.conf
-    content: "overlay\n"
-    mode: "0644"
+    - name: Persist overlay module at boot
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/overlay.conf
+        content: "overlay\n"
+        mode: "0644"
   become: true
 
 # Persist and mount overlay
@@ -63,59 +62,53 @@
 
 # --- Per-node customizations (written into overlay upper) ---
 
-- name: Set hostname
-  ansible.builtin.copy:
-    dest: "{{ node_root }}/etc/hostname"
-    content: "{{ node_name }}\n"
-    mode: "0644"
-  become: true
+- name: Configure node system settings
+  block:
+    - name: Set hostname
+      ansible.builtin.copy:
+        dest: "{{ node_root }}/etc/hostname"
+        content: "{{ node_name }}\n"
+        mode: "0644"
 
-- name: Update /etc/hosts
-  ansible.builtin.lineinfile:
-    path: "{{ node_root }}/etc/hosts"
-    regexp: '^127\.0\.1\.1\s+'
-    line: "127.0.1.1\t{{ node_name }}"
-    create: true
-  become: true
+    - name: Update /etc/hosts
+      ansible.builtin.lineinfile:
+        path: "{{ node_root }}/etc/hosts"
+        regexp: '^127\.0\.1\.1\s+'
+        line: "127.0.1.1\t{{ node_name }}"
+        create: true
 
-- name: Add tmpfs entries to /etc/fstab
-  ansible.builtin.blockinfile:
-    path: "{{ node_root }}/etc/fstab"
-    block: |
-      tmpfs /var/log tmpfs defaults,noatime,nosuid,size={{ tmpfs_var_log_size }} 0 0
-      tmpfs /tmp     tmpfs defaults,noatime,nosuid,size={{ tmpfs_tmp_size }}     0 0
+    - name: Add tmpfs entries to /etc/fstab
+      ansible.builtin.blockinfile:
+        path: "{{ node_root }}/etc/fstab"
+        block: |
+          tmpfs /var/log tmpfs defaults,noatime,nosuid,size={{ tmpfs_var_log_size }} 0 0
+          tmpfs /tmp     tmpfs defaults,noatime,nosuid,size={{ tmpfs_tmp_size }}     0 0
   become: true
 
 # --- SSH Configuration ---
 
-- name: Enable SSH service on Pi nodes
-  ansible.builtin.file:
-    path: "{{ node_root }}/etc/systemd/system/multi-user.target.wants/ssh.service"
-    src: "/lib/systemd/system/ssh.service"
-    state: link
-  become: true
+- name: Configure SSH service and settings
+  block:
+    - name: Enable SSH service on Pi nodes
+      ansible.builtin.file:
+        path: "{{ node_root }}/etc/systemd/system/multi-user.target.wants/ssh.service"
+        src: "/lib/systemd/system/ssh.service"
+        state: link
 
-- name: Create SSH host keys directory if missing
-  ansible.builtin.file:
-    path: "{{ node_root }}/etc/ssh"
-    state: directory
-    mode: "0755"
-  become: true
+    - name: Ensure SSH directory exists
+      ansible.builtin.file:
+        path: "{{ node_root }}/etc/ssh"
+        state: directory
+        mode: "0755"
 
-- name: Configure SSH to allow root login (for initial setup)
-  ansible.builtin.lineinfile:
-    path: "{{ node_root }}/etc/ssh/sshd_config"
-    regexp: '^#?PermitRootLogin'
-    line: 'PermitRootLogin yes'
-    create: true
-  become: true
-
-- name: Enable password authentication in SSH (can be disabled later)
-  ansible.builtin.lineinfile:
-    path: "{{ node_root }}/etc/ssh/sshd_config"
-    regexp: '^#?PasswordAuthentication'
-    line: 'PasswordAuthentication yes'
-    create: true
+    - name: Configure SSH for initial setup
+      ansible.builtin.blockinfile:
+        path: "{{ node_root }}/etc/ssh/sshd_config"
+        create: true
+        block: |
+          PermitRootLogin yes
+          PasswordAuthentication yes
+        marker: "# {mark} ANSIBLE MANAGED - Initial SSH Config"
   become: true
 
 # --- Pi User Configuration ---
@@ -142,44 +135,44 @@
         )
       }}
 
-- name: Create pi user with sudo privileges
-  ansible.builtin.user:
-    name: "{{ pi_ssh_user }}"
-    password: "{{ pi_ssh_password | password_hash('sha512') }}"
-    groups: sudo
-    shell: /bin/bash
-    create_home: true
-    home: "/home/{{ pi_ssh_user }}"
-  vars:
-    ansible_chroot: "{{ node_root }}"
-  become: true
+- name: Configure pi user with SSH access
+  block:
+    - name: Create pi user with sudo privileges
+      ansible.builtin.user:
+        name: "{{ pi_ssh_user }}"
+        password: "{{ pi_ssh_password | password_hash('sha512') }}"
+        groups: sudo
+        shell: /bin/bash
+        create_home: true
+        home: "/home/{{ pi_ssh_user }}"
+      vars:
+        ansible_chroot: "{{ node_root }}"
 
-- name: Add pi user to sudoers for passwordless sudo
-  ansible.builtin.lineinfile:
-    path: "{{ node_root }}/etc/sudoers"
-    line: "{{ pi_ssh_user }} ALL=(ALL) NOPASSWD:ALL"
-    validate: 'visudo -cf %s'
-  become: true
+    - name: Add pi user to sudoers for passwordless sudo
+      ansible.builtin.lineinfile:
+        path: "{{ node_root }}/etc/sudoers"
+        line: "{{ pi_ssh_user }} ALL=(ALL) NOPASSWD:ALL"
+        validate: 'visudo -cf %s'
 
-- name: Create .ssh directory for pi user
-  ansible.builtin.file:
-    path: "{{ node_root }}/home/{{ pi_ssh_user }}/.ssh"
-    state: directory
-    mode: "0700"
-    owner: 1000
-    group: 1000
-  become: true
-  when: final_authorized_keys | length > 0
+    - name: Configure SSH keys for pi user
+      block:
+        - name: Create .ssh directory for pi user
+          ansible.builtin.file:
+            path: "{{ node_root }}/home/{{ pi_ssh_user }}/.ssh"
+            state: directory
+            mode: "0700"
+            owner: 1000
+            group: 1000
 
-- name: Add authorized keys for pi user
-  ansible.builtin.copy:
-    content: "{{ final_authorized_keys | join('\n') }}\n"
-    dest: "{{ node_root }}/home/{{ pi_ssh_user }}/.ssh/authorized_keys"
-    mode: "0600"
-    owner: 1000
-    group: 1000
+        - name: Add authorized keys for pi user
+          ansible.builtin.copy:
+            content: "{{ final_authorized_keys | join('\n') }}\n"
+            dest: "{{ node_root }}/home/{{ pi_ssh_user }}/.ssh/authorized_keys"
+            mode: "0600"
+            owner: 1000
+            group: 1000
+      when: final_authorized_keys | length > 0
   become: true
-  when: final_authorized_keys | length > 0
 
 # --- TFTP boot files: shared + per-node cmdline.txt ---
 
@@ -215,4 +208,33 @@
     mode: "0644"
   vars:
     node_hostname: "{{ node_name }}"
+  become: true
+
+- name: Create per-node config.txt (only node-specific overrides)
+  ansible.builtin.copy:
+    dest: "{{ node_tftp }}/config.txt"
+    content: |
+      # Per-node netboot configuration for {{ node_name }}
+      arm_64bit=1
+      enable_uart=1
+      uart_2ndstage=1
+      gpu_mem=16
+      program_usb_boot_mode=1
+      dtparam=audio=off
+      dtparam=spi=off
+      dtparam=i2c=off
+      enable_ssh=1
+      boot_delay=1
+      dtoverlay=disable-wifi
+      dtoverlay=disable-bt
+    mode: "0644"
+  become: true
+
+- name: Set proper permissions on TFTP node directory
+  ansible.builtin.file:
+    path: "{{ node_tftp }}"
+    owner: nobody
+    group: nogroup
+    mode: '0755'
+    recurse: true
   become: true

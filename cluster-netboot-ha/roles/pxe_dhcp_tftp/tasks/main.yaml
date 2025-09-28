@@ -1,22 +1,18 @@
-- name: Ensure rsync is installed
-  ansible.builtin.package:
-    name: rsync
-    state: present
-  become: true
+- name: Setup initial requirements
+  block:
+    - name: Ensure required packages are installed
+      ansible.builtin.package:
+        name: rsync
+        state: present
 
-- name: Ensure TFTP root exists
-  ansible.builtin.file:
-    path: /srv/tftp
-    state: directory
-    mode: "0755"
-  become: true
-
-# Ensure work dir exists (if you don't already elsewhere)
-- name: Ensure build/work dir exists
-  ansible.builtin.file:
-    path: "{{ work_dir }}"
-    state: directory
-    mode: "0755"
+    - name: Ensure required directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - /srv/tftp
+        - "{{ work_dir }}"
   become: true
 
 # Get Raspberry Pi firmware (ZIP of the repo HEAD by default; override rpi_firmware_url if you like)
@@ -71,6 +67,17 @@
   changed_when: "'<<CHANGED>>' in rsync_result.stdout"
   become: true
 
+- name: Verify essential boot files exist in TFTP root
+  ansible.builtin.stat:
+    path: "{{ tftp_root }}/{{ item }}"
+  register: boot_files_check
+  loop:
+    - bootcode.bin
+    - start4.elf
+    - fixup4.dat
+  failed_when: not boot_files_check.stat.exists
+  become: true
+
 - name: Install dnsmasq
   ansible.builtin.package:
     name: dnsmasq
@@ -101,34 +108,30 @@
   ansible.builtin.debug:
     msg: "Port 53 usage: {{ port53_check.stdout_lines }}"
 
-- name: Stop any existing dnsmasq processes
-  ansible.builtin.shell: "pkill -f dnsmasq || true"
-  become: true
-  ignore_errors: true
+- name: Clean up conflicting DNS services
+  block:
+    - name: Stop systemd-resolved completely
+      ansible.builtin.systemd:
+        name: systemd-resolved
+        state: stopped
+        enabled: false
+      ignore_errors: true
 
-- name: Stop systemd-resolved completely
-  ansible.builtin.systemd:
-    name: systemd-resolved
-    state: stopped
-    enabled: false
+    - name: Kill conflicting DNS processes
+      ansible.builtin.shell: |
+        # Kill dnsmasq processes
+        pkill -f dnsmasq || true
+        # Kill systemd-resolved processes
+        pkill -f systemd-resolved || true
+        # Kill any other processes using port 53
+        for pid in $(lsof -t -i :53 2>/dev/null || true); do
+          if [ -n "$pid" ]; then
+            echo "Killing process $pid using port 53"
+            kill -9 "$pid" || true
+          fi
+        done
+      ignore_errors: true
   become: true
-  ignore_errors: true
-
-- name: Kill any remaining systemd-resolved processes
-  ansible.builtin.shell: "pkill -f systemd-resolved || true"
-  become: true
-  ignore_errors: true
-
-- name: Kill any other processes using port 53
-  ansible.builtin.shell: |
-    for pid in $(lsof -t -i :53 2>/dev/null || true); do
-      if [ -n "$pid" ]; then
-        echo "Killing process $pid using port 53"
-        kill -9 "$pid" || true
-      fi
-    done
-  become: true
-  ignore_errors: true
 
 - name: Disable systemd-resolved DNS stub listener
   ansible.builtin.lineinfile:
@@ -214,4 +217,3 @@
     enabled: true
     daemon_reload: true
   become: true
-

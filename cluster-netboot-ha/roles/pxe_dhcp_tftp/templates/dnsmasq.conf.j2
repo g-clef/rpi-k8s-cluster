@@ -24,16 +24,16 @@ log-dhcp
 enable-tftp
 tftp-root={{ tftp_root }}
 
-# Pi4 architecture matching
-dhcp-match=set:rpi4,option:client-arch,29
-dhcp-match=set:rpi4,option:client-arch,11
+# Pi4 architecture matching - use proper architecture IDs
+dhcp-match=set:rpi4,option:client-arch,0
+dhcp-match=set:rpi4,option:client-arch,7
 
-# Boot configuration for RPi netboot
-dhcp-option=tag:rpi4,option:bootfile-name,start4.elf
+# Boot configuration for RPi netboot - start with bootcode.bin first
+dhcp-boot=tag:rpi4,bootcode.bin
 dhcp-option=tag:rpi4,option:tftp-server,{{ ansible_default_ipv4.address | default('192.168.1.50') }}
 
 # Static DHCP leases for Raspberry Pis with individual boot paths
 {% for host in groups['pi_servers'] + groups['pi_agents'] %}
 dhcp-host={{ hostvars[host].mac | lower }},{{ hostvars[host].ip }},set:rpi4,set:{{ hostvars[host].hostname }}
-dhcp-option=tag:{{ hostvars[host].hostname }},option:bootfile-name,{{ hostvars[host].mac | lower | replace(':','-') }}/start4.elf
+dhcp-boot=tag:{{ hostvars[host].hostname }},{{ hostvars[host].mac | lower | replace(':','-') }}/bootcode.bin
 {% endfor %}
