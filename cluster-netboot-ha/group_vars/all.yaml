@@ -49,7 +49,7 @@ docker_registry_secret: "{{ secrets.docker_registry_secret | default({}) }}"
 
 # ArgoCD App of Apps Configuration
 # This allows you to manage all cluster components via Git instead of Ansible
-argocd_apps_repo_url: "{{ secrets.argocd_apps_repo_url | default('https://github.com/your-username/argocd-apps.git') }}"
+argocd_apps_repo_url: "{{ secrets.argocd_apps_repo_url | default('https://github.com/g-clef/homelab-argo-aoa.git') }}"
 argocd_apps_repo_branch: "{{ secrets.argocd_apps_repo_branch | default('main') }}"
 argocd_apps_repo_path: "{{ secrets.argocd_apps_repo_path | default('.') }}"
 
