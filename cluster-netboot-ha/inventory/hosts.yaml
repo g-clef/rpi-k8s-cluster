@@ -30,3 +30,4 @@ all:
         pi15: { mac: e4:5f:01:da:a5:fc, ip: 192.168.1.115, hostname: pi15 }
         pi16: { mac: e4:5f:01:da:a5:bb, ip: 192.168.1.116, hostname: pi16 }
         pi17: { mac: e4:5f:01:da:a5:b8, ip: 192.168.1.117, hostname: pi17 }
+        pi18: { mac: e4:5f:01:da:96:69, ip: 192.168.1.118, hostname: pi18 }
