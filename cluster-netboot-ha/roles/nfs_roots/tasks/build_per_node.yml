@@ -208,7 +208,6 @@
     remote_src: true
     mode: "0644"
   loop:
-    - armstub8-gic.bin
     - kernel8.img
     - bcm2711-rpi-4-b.dtb
     - bcm2711-rpi-400.dtb
