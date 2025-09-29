@@ -67,24 +67,91 @@
   changed_when: "'<<CHANGED>>' in rsync_result.stdout"
   become: true
 
-# Download additional Pi 4 specific boot files that may not be in firmware
-- name: Download Pi 4 specific boot files
+# Extract critical Pi 4 boot files from Raspberry Pi OS image for version consistency
+- name: Download Raspberry Pi OS Lite for boot file extraction
   ansible.builtin.get_url:
-    url: "https://github.com/raspberrypi/firmware/raw/master/boot/{{ item }}"
-    dest: "{{ tftp_root }}/{{ item }}"
+    url: "{{ raspios_url }}"
+    dest: "{{ work_dir }}/temp-raspios-for-boot.img.xz"
     mode: "0644"
     force: false
-  loop:
-    - kernel8.img
-    - bcm2711-rpi-4-b.dtb
-    - bcm2711-rpi-400.dtb
-    - bcm2711-rpi-cm4.dtb
-  register: additional_files
+    timeout: 1800
+  register: temp_image_dl
   retries: 3
-  delay: 5
-  until: additional_files is succeeded
+  delay: 10
+  until: temp_image_dl is succeeded
+
+- name: Extract critical boot files from Raspberry Pi OS image
+  block:
+    - name: Create temporary mount directory
+      ansible.builtin.file:
+        path: "{{ work_dir }}/temp-mount"
+        state: directory
+        mode: "0755"
+
+    - name: Decompress Raspberry Pi OS image
+      ansible.builtin.shell: |
+        cd {{ work_dir }}
+        xz -d -k temp-raspios-for-boot.img.xz
+      args:
+        creates: "{{ work_dir }}/temp-raspios-for-boot.img"
+
+    - name: Get boot partition offset
+      ansible.builtin.shell: |
+        fdisk -l {{ work_dir }}/temp-raspios-for-boot.img | grep "\.img1" | awk '{print $2 * 512}'
+      register: boot_offset
+
+    - name: Mount boot partition to extract critical files
+      ansible.builtin.shell: |
+        mount -o loop,offset={{ boot_offset.stdout }} {{ work_dir }}/temp-raspios-for-boot.img {{ work_dir }}/temp-mount
+      become: true
+
+    - name: Copy critical Pi 4 boot files to TFTP root
+      ansible.builtin.copy:
+        src: "{{ work_dir }}/temp-mount/{{ item }}"
+        dest: "{{ tftp_root }}/{{ item }}"
+        mode: "0644"
+        remote_src: true
+      loop:
+        - kernel8.img
+        - armstub8-gic.bin
+        - bcm2711-rpi-4-b.dtb
+        - bcm2711-rpi-400.dtb
+        - bcm2711-rpi-cm4.dtb
+      become: true
+      ignore_errors: true  # Some files might not exist in all Pi OS versions
+
+    - name: Copy overlays directory from Pi OS image
+      ansible.builtin.shell: |
+        if [ -d "{{ work_dir }}/temp-mount/overlays" ]; then
+          rsync -a "{{ work_dir }}/temp-mount/overlays/" "{{ tftp_root }}/overlays/"
+        fi
+      become: true
+      ignore_errors: true
+
+    - name: Unmount temporary mount
+      ansible.builtin.shell: "umount {{ work_dir }}/temp-mount"
+      become: true
+      ignore_errors: true
+
+    - name: Clean up temporary files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ work_dir }}/temp-mount"
+        - "{{ work_dir }}/temp-raspios-for-boot.img"
+        - "{{ work_dir }}/temp-raspios-for-boot.img.xz"
+      ignore_errors: true
   become: true
-  ignore_errors: true
+
+
+# Create overlays directory if it doesn't exist
+- name: Create overlays directory
+  ansible.builtin.file:
+    path: "{{ tftp_root }}/overlays"
+    state: directory
+    mode: "0755"
+  become: true
 
 - name: Verify essential boot files exist in TFTP root
   ansible.builtin.stat:
@@ -95,6 +162,7 @@
     - start4.elf
     - fixup4.dat
     - kernel8.img
+    - armstub8-gic.bin
   failed_when: not boot_files_check.stat.exists
   become: true
 
