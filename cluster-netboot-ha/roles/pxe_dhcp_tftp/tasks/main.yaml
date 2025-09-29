@@ -105,7 +105,25 @@
         mount -o loop,offset={{ boot_offset.stdout }} {{ work_dir }}/temp-raspios-for-boot.img {{ work_dir }}/temp-mount
       become: true
 
-    - name: Copy critical Pi 4 boot files to TFTP root
+    - name: List available files in Pi OS boot partition for debugging
+      ansible.builtin.shell: "ls -la {{ work_dir }}/temp-mount/ | head -20"
+      register: boot_files_list
+      become: true
+
+    - name: Display available boot files
+      ansible.builtin.debug:
+        msg: "Available files in Pi OS boot partition: {{ boot_files_list.stdout_lines }}"
+
+    - name: Check for armstub files in Pi OS boot partition
+      ansible.builtin.shell: "ls {{ work_dir }}/temp-mount/armstub* || echo 'No armstub files found'"
+      register: armstub_files
+      become: true
+
+    - name: Display armstub files found
+      ansible.builtin.debug:
+        msg: "Armstub files found: {{ armstub_files.stdout_lines }}"
+
+    - name: Copy available Pi 4 boot files to TFTP root
       ansible.builtin.copy:
         src: "{{ work_dir }}/temp-mount/{{ item }}"
         dest: "{{ tftp_root }}/{{ item }}"
@@ -113,12 +131,28 @@
         remote_src: true
       loop:
         - kernel8.img
-        - armstub8-gic.bin
         - bcm2711-rpi-4-b.dtb
         - bcm2711-rpi-400.dtb
         - bcm2711-rpi-cm4.dtb
       become: true
-      ignore_errors: true  # Some files might not exist in all Pi OS versions
+      ignore_errors: true
+
+    - name: Copy armstub files if they exist (may have different names)
+      ansible.builtin.shell: |
+        cd "{{ work_dir }}/temp-mount"
+        for armstub_file in armstub*.bin; do
+          if [ -f "$armstub_file" ]; then
+            cp "$armstub_file" "{{ tftp_root }}/"
+            echo "Copied $armstub_file"
+          fi
+        done
+        # Also check for armstub8-gic.bin specifically and create symlink if needed
+        if [ -f "armstub8.bin" ] && [ ! -f "armstub8-gic.bin" ]; then
+          cp "armstub8.bin" "{{ tftp_root }}/armstub8-gic.bin"
+          echo "Created armstub8-gic.bin from armstub8.bin"
+        fi
+      become: true
+      ignore_errors: true
 
     - name: Copy overlays directory from Pi OS image
       ansible.builtin.shell: |
@@ -162,9 +196,22 @@
     - start4.elf
     - fixup4.dat
     - kernel8.img
-    - armstub8-gic.bin
   failed_when: not boot_files_check.stat.exists
   become: true
+
+- name: Check for any armstub file in TFTP root
+  ansible.builtin.shell: "ls {{ tftp_root }}/armstub*.bin 2>/dev/null || echo 'No armstub files found'"
+  register: tftp_armstub_check
+  become: true
+
+- name: Display armstub status in TFTP root
+  ansible.builtin.debug:
+    msg: "Armstub files in TFTP root: {{ tftp_armstub_check.stdout_lines }}"
+
+- name: Warn if no armstub file found
+  ansible.builtin.debug:
+    msg: "WARNING: No armstub files found. Pi 4B netboot may fail. Consider downloading from alternative source."
+  when: "'No armstub files found' in tftp_armstub_check.stdout"
 
 - name: Install dnsmasq
   ansible.builtin.package:
