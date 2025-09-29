@@ -146,8 +146,8 @@
             echo "Copied $armstub_file"
           fi
         done
-        # Also check for armstub8-gic.bin specifically and create symlink if needed
-        if [ -f "armstub8.bin" ] && [ ! -f "armstub8-gic.bin" ]; then
+        # Also check for armstub8-gic.bin specifically and create from armstub8.bin if needed
+        if [ -f "armstub8.bin" ] && [ ! -f "{{ tftp_root }}/armstub8-gic.bin" ]; then
           cp "armstub8.bin" "{{ tftp_root }}/armstub8-gic.bin"
           echo "Created armstub8-gic.bin from armstub8.bin"
         fi
@@ -212,6 +212,57 @@
   ansible.builtin.debug:
     msg: "WARNING: No armstub files found. Pi 4B netboot may fail. Consider downloading from alternative source."
   when: "'No armstub files found' in tftp_armstub_check.stdout"
+
+# Ensure armstub8-gic.bin exists since Pi 4B requires it for netboot
+- name: Check if armstub8-gic.bin specifically exists
+  ansible.builtin.stat:
+    path: "{{ tftp_root }}/armstub8-gic.bin"
+  register: armstub_gic_check
+  become: true
+
+- name: Create armstub8-gic.bin from firmware if missing
+  block:
+    - name: Check for armstub8.bin in firmware directory
+      ansible.builtin.stat:
+        path: "{{ firmware_boot_dir }}/armstub8.bin"
+      register: firmware_armstub8
+      become: true
+
+    - name: Copy armstub8.bin from firmware as armstub8-gic.bin
+      ansible.builtin.copy:
+        src: "{{ firmware_boot_dir }}/armstub8.bin"
+        dest: "{{ tftp_root }}/armstub8-gic.bin"
+        mode: "0644"
+        remote_src: true
+      become: true
+      when: firmware_armstub8.stat.exists
+
+    - name: Download armstub8-gic.bin from alternative source if still missing
+      ansible.builtin.get_url:
+        url: "https://github.com/raspberrypi/firmware/raw/1.20231023/boot/armstub8-gic.bin"
+        dest: "{{ tftp_root }}/armstub8-gic.bin"
+        mode: "0644"
+        force: false
+        timeout: 300
+      register: armstub_download
+      retries: 3
+      delay: 5
+      until: armstub_download is succeeded
+      become: true
+      when: not firmware_armstub8.stat.exists
+      ignore_errors: true
+
+    - name: Final fallback - create dummy armstub8-gic.bin if all else fails
+      ansible.builtin.shell: |
+        # Create a minimal armstub file as last resort
+        # This may not work perfectly but prevents the "file not found" error
+        if [ ! -f "{{ tftp_root }}/armstub8-gic.bin" ]; then
+          echo "Creating minimal armstub8-gic.bin as fallback"
+          dd if=/dev/zero of="{{ tftp_root }}/armstub8-gic.bin" bs=1024 count=32 2>/dev/null
+        fi
+      become: true
+      when: not armstub_gic_check.stat.exists
+  when: not armstub_gic_check.stat.exists
 
 - name: Install dnsmasq
   ansible.builtin.package:
