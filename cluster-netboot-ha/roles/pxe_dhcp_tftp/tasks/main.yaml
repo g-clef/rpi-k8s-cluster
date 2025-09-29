@@ -75,7 +75,6 @@
     mode: "0644"
     force: false
   loop:
-    - armstub8-gic.bin
     - kernel8.img
     - bcm2711-rpi-4-b.dtb
     - bcm2711-rpi-400.dtb
@@ -95,7 +94,6 @@
     - bootcode.bin
     - start4.elf
     - fixup4.dat
-    - armstub8-gic.bin
     - kernel8.img
   failed_when: not boot_files_check.stat.exists
   become: true
