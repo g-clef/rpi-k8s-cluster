@@ -1,7 +1,7 @@
 ---
 - name: Create MinIO namespace
   copy:
-    dest: "{{ per_node_root_base }}/pi01/tmp/minio-namespace.yaml"
+    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/minio-namespace.yaml"
     content: |
       apiVersion: v1
       kind: Namespace
@@ -13,20 +13,20 @@
 - name: Create MinIO deployment manifest
   template:
     src: minio-deployment.yaml.j2
-    dest: "{{ per_node_root_base }}/pi01/tmp/minio-deployment.yaml"
+    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/minio-deployment.yaml"
     mode: '0644'
   become: true
 
 - name: Create MinIO service manifest
   template:
     src: minio-service.yaml.j2
-    dest: "{{ per_node_root_base }}/pi01/tmp/minio-service.yaml"
+    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/minio-service.yaml"
     mode: '0644'
   become: true
 
 - name: Create MinIO installation script
   copy:
-    dest: "{{ per_node_root_base }}/pi01/tmp/install-minio.sh"
+    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/install-minio.sh"
     content: |
       #!/bin/bash
       set -e
@@ -45,10 +45,13 @@
     mode: '0755'
   become: true
 
-- name: Create MinIO systemd service
-  copy:
-    dest: "{{ per_node_root_base }}/pi01/etc/systemd/system/minio-install.service"
-    content: |
+- name: Create and enable MinIO systemd service
+  ansible.builtin.include_role:
+    name: systemd_helper
+  vars:
+    target_hostname: "{{ hostvars[groups['pi_servers'][0]].hostname }}"
+    service_name: "minio-install"
+    service_content: |
       [Unit]
       Description=Install MinIO S3 Gateway
       After=k3s.service
@@ -61,12 +64,3 @@
 
       [Install]
       WantedBy=multi-user.target
-    mode: '0644'
-  become: true
-
-- name: Enable MinIO installation service
-  file:
-    src: ../minio-install.service
-    dest: "{{ per_node_root_base }}/pi01/etc/systemd/system/multi-user.target.wants/minio-install.service"
-    state: link
-  become: true

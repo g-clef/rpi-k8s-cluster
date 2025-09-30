@@ -1,7 +1,7 @@
 ---
 - name: Create KubeRay manifests directory
   file:
-    path: "{{ per_node_root_base }}/pi01/tmp/kuberay"
+    path: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/kuberay"
     state: directory
     mode: '0755'
   become: true
@@ -9,21 +9,24 @@
 - name: Create KubeRay operator manifest
   template:
     src: kuberay-operator.yaml.j2
-    dest: "{{ per_node_root_base }}/pi01/tmp/kuberay/kuberay-operator.yaml"
+    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/kuberay/kuberay-operator.yaml"
     mode: '0644'
   become: true
 
 - name: Create KubeRay operator installation script
   template:
     src: install-kuberay-operator.sh.j2
-    dest: "{{ per_node_root_base }}/pi01/tmp/install-kuberay-operator.sh"
+    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/install-kuberay-operator.sh"
     mode: '0755'
   become: true
 
-- name: Create KubeRay operator systemd service
-  copy:
-    dest: "{{ per_node_root_base }}/pi01/etc/systemd/system/kuberay-operator-install.service"
-    content: |
+- name: Create and enable KubeRay systemd service
+  ansible.builtin.include_role:
+    name: systemd_helper
+  vars:
+    target_hostname: "{{ hostvars[groups['pi_servers'][0]].hostname }}"
+    service_name: "kuberay-operator-install"
+    service_content: |
       [Unit]
       Description=Install KubeRay Operator
       After=firstboot-ops.service
@@ -36,12 +39,3 @@
 
       [Install]
       WantedBy=multi-user.target
-    mode: '0644'
-  become: true
-
-- name: Enable KubeRay operator installation service
-  file:
-    src: ../kuberay-operator-install.service
-    dest: "{{ per_node_root_base }}/pi01/etc/systemd/system/multi-user.target.wants/kuberay-operator-install.service"
-    state: link
-  become: true

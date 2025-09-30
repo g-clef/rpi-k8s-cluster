@@ -24,6 +24,8 @@
     force: false
     timeout: 1800
     tmp_dest: "{{ work_dir }}"
+    headers:
+      User-Agent: "ansible-netboot-setup/1.0"
   register: fw_dl
   retries: 5
   delay: 10
@@ -67,18 +69,19 @@
   changed_when: "'<<CHANGED>>' in rsync_result.stdout"
   become: true
 
+# Note: Removed redundant individual file downloads - files are now extracted from Pi OS image or firmware archive
+
 # Extract critical Pi 4 boot files from Raspberry Pi OS image for version consistency
-- name: Download Raspberry Pi OS Lite for boot file extraction
-  ansible.builtin.get_url:
-    url: "{{ raspios_url }}"
-    dest: "{{ work_dir }}/temp-raspios-for-boot.img.xz"
-    mode: "0644"
-    force: false
-    timeout: 1800
-  register: temp_image_dl
-  retries: 3
-  delay: 10
-  until: temp_image_dl is succeeded
+# Note: Image is downloaded by k3s_common role to avoid duplication
+- name: Check if Raspberry Pi OS image exists
+  ansible.builtin.stat:
+    path: "{{ work_dir }}/{{ raspios_url | basename }}"
+  register: raspios_image_check
+
+- name: Fail if shared Raspberry Pi OS image not found
+  ansible.builtin.fail:
+    msg: "Raspberry Pi OS image not found at {{ work_dir }}/{{ raspios_url | basename }}. Ensure k3s_common role runs first."
+  when: not raspios_image_check.stat.exists
 
 - name: Extract critical boot files from Raspberry Pi OS image
   block:
@@ -91,18 +94,18 @@
     - name: Decompress Raspberry Pi OS image
       ansible.builtin.shell: |
         cd {{ work_dir }}
-        xz -d -k temp-raspios-for-boot.img.xz
+        xz -d -k {{ raspios_url | basename }}
       args:
-        creates: "{{ work_dir }}/temp-raspios-for-boot.img"
+        creates: "{{ work_dir }}/{{ (raspios_url | basename) | regex_replace('\\.xz$', '') }}"
 
     - name: Get boot partition offset
       ansible.builtin.shell: |
-        fdisk -l {{ work_dir }}/temp-raspios-for-boot.img | grep "\.img1" | awk '{print $2 * 512}'
+        fdisk -l {{ work_dir }}/{{ (raspios_url | basename) | regex_replace('\.xz$', '') }} | grep "\.img1" | awk '{print $2 * 512}'
       register: boot_offset
 
     - name: Mount boot partition to extract critical files
       ansible.builtin.shell: |
-        mount -o loop,offset={{ boot_offset.stdout }} {{ work_dir }}/temp-raspios-for-boot.img {{ work_dir }}/temp-mount
+        mount -o loop,offset={{ boot_offset.stdout }} {{ work_dir }}/{{ (raspios_url | basename) | regex_replace('\.xz$', '') }} {{ work_dir }}/temp-mount
       become: true
 
     - name: List available files in Pi OS boot partition for debugging
@@ -173,8 +176,7 @@
         state: absent
       loop:
         - "{{ work_dir }}/temp-mount"
-        - "{{ work_dir }}/temp-raspios-for-boot.img"
-        - "{{ work_dir }}/temp-raspios-for-boot.img.xz"
+        - "{{ work_dir }}/{{ (raspios_url | basename) | regex_replace('\.xz$', '') }}"
       ignore_errors: true
   become: true
 
@@ -237,19 +239,40 @@
       become: true
       when: firmware_armstub8.stat.exists
 
-    - name: Download armstub8-gic.bin from alternative source if still missing
+    - name: Download armstub8-gic.bin from primary source if still missing
       ansible.builtin.get_url:
-        url: "https://github.com/raspberrypi/firmware/raw/1.20231023/boot/armstub8-gic.bin"
+        url: "https://raw.githubusercontent.com/raspberrypi/firmware/master/boot/armstub8-gic.bin"
         dest: "{{ tftp_root }}/armstub8-gic.bin"
         mode: "0644"
         force: false
         timeout: 300
-      register: armstub_download
+        headers:
+          User-Agent: "ansible-netboot-setup/1.0"
+      register: armstub_download_primary
       retries: 3
       delay: 5
-      until: armstub_download is succeeded
+      until: armstub_download_primary is succeeded
       become: true
       when: not firmware_armstub8.stat.exists
+      ignore_errors: true
+
+    - name: Download armstub8-gic.bin from versioned fallback source if primary fails
+      ansible.builtin.get_url:
+        url: "https://raw.githubusercontent.com/raspberrypi/firmware/1.20231023/boot/armstub8-gic.bin"
+        dest: "{{ tftp_root }}/armstub8-gic.bin"
+        mode: "0644"
+        force: false
+        timeout: 300
+        headers:
+          User-Agent: "ansible-netboot-setup/1.0"
+      register: armstub_download_fallback
+      retries: 3
+      delay: 5
+      until: armstub_download_fallback is succeeded
+      become: true
+      when: 
+        - not firmware_armstub8.stat.exists
+        - armstub_download_primary is failed
       ignore_errors: true
 
     - name: Final fallback - create dummy armstub8-gic.bin if all else fails
@@ -402,4 +425,66 @@
     state: started
     enabled: true
     daemon_reload: true
+  become: true
+
+# Final verification of netboot setup
+- name: Verify complete netboot file structure
+  block:
+    - name: Check for all essential netboot files
+      ansible.builtin.stat:
+        path: "{{ tftp_root }}/{{ item }}"
+      register: final_files_check
+      loop:
+        # Core bootloader files
+        - bootcode.bin
+        # GPU firmware files
+        - start.elf
+        - start4.elf
+        - start_x.elf
+        - start4x.elf
+        # Memory split files
+        - fixup.dat
+        - fixup4.dat
+        - fixup_x.dat
+        - fixup4x.dat
+        # ARM stub file (critical for Pi 4)
+        - armstub8-gic.bin
+        # Kernel and device tree
+        - kernel8.img
+        - bcm2711-rpi-4-b.dtb
+        # Overlays directory
+        - overlays
+      become: true
+
+    - name: Report missing critical files
+      ansible.builtin.debug:
+        msg: "WARNING: Missing critical netboot file {{ item.item }}"
+      loop: "{{ final_files_check.results }}"
+      when: not item.stat.exists
+
+    - name: Count successful file installations
+      ansible.builtin.set_fact:
+        netboot_files_present: "{{ final_files_check.results | selectattr('stat.exists') | list | length }}"
+        netboot_files_total: "{{ final_files_check.results | length }}"
+
+    - name: Display netboot setup summary
+      ansible.builtin.debug:
+        msg: |
+          Raspberry Pi Netboot Setup Summary:
+          - Files present: {{ netboot_files_present }}/{{ netboot_files_total }}
+          - TFTP root: {{ tftp_root }}
+          - DHCP/TFTP service: dnsmasq (running)
+          - Network interface: {{ net_iface }}
+          - DHCP range: {{ dhcp_start }}-{{ dhcp_end }}
+          
+          Setup is {{ 'COMPLETE' if netboot_files_present == netboot_files_total else 'INCOMPLETE' }}
+          {{ 'All Raspberry Pi nodes should now be able to netboot successfully.' if netboot_files_present == netboot_files_total else 'Some files are missing - check logs above for details.' }}
+
+    - name: Fail if critical files are missing
+      ansible.builtin.fail:
+        msg: |
+          Netboot setup incomplete: {{ netboot_files_total - netboot_files_present }} files missing.
+          This will prevent Raspberry Pi nodes from booting successfully.
+          Check the download errors above and network connectivity.
+      when: netboot_files_present < (netboot_files_total * 0.8)  # Allow some non-critical files to be missing
   become: true

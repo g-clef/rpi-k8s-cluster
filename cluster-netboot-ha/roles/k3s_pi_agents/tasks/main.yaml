@@ -1,31 +1,12 @@
 ---
-- name: Install k3s-agent unit for each worker
-  copy:
-    dest: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/etc/systemd/system/k3s-agent.service"
-    content: "{{ lookup('template','k3s-agent.service.j2') }}"
-  loop: "{{ groups['pi_agents'] }}"
-  loop_control: { label: "{{ hostvars[item].hostname }}" }
-
-# Ensure wants dir exists
-- name: Ensure agent wants dir exists
-  ansible.builtin.file:
-    path: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/etc/systemd/system/multi-user.target.wants"
-    state: directory
-    mode: "0755"
+# Install k3s-agent service using systemd_helper
+- name: Install k3s-agent service
+  ansible.builtin.include_role:
+    name: systemd_helper
+  vars:
+    target_hostname: "{{ hostvars[item].hostname }}"
+    service_name: "k3s-agent"
+    service_content: "{{ lookup('template','k3s-agent.service.j2') }}"
   loop: "{{ groups['pi_agents'] | default([]) }}"
   loop_control:
     label: "{{ hostvars[item].hostname }}"
-  become: true
-
-# Create symlink to k3s-agent.service (relative)
-- name: Enable k3s agent unit (create wants symlink)
-  ansible.builtin.file:
-    state: link
-    path: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/etc/systemd/system/multi-user.target.wants/k3s-agent.service"
-    src: "../k3s-agent.service"
-    force: true
-  loop: "{{ groups['pi_agents'] | default([]) }}"
-  loop_control:
-    label: "{{ hostvars[item].hostname }}"
-  become: true
-

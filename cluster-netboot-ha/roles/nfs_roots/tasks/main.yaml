@@ -37,20 +37,17 @@
       - rsync
   become: true
 
-# --- Download image (patient/retriable) ---------------------------------------
+# --- Use shared image download from k3s_common role ---------------------------
 
-- name: Download Raspberry Pi OS image (patient + retries)
-  ansible.builtin.get_url:
-    url: "{{ raspios_url }}"
-    dest: "{{ work_dir }}/{{ raspios_url | basename }}"
-    mode: "0644"
-    force: false
-    timeout: 1800
-    tmp_dest: "{{ work_dir }}"
-  register: raspios_dl
-  retries: 5
-  delay: 15
-  until: raspios_dl is succeeded
+- name: Check if shared Raspberry Pi OS image exists
+  ansible.builtin.stat:
+    path: "{{ work_dir }}/{{ raspios_url | basename }}"
+  register: shared_raspios_check
+
+- name: Fail if shared Raspberry Pi OS image not found
+  ansible.builtin.fail:
+    msg: "Raspberry Pi OS image not found at {{ work_dir }}/{{ raspios_url | basename }}. Ensure k3s_common role runs first."
+  when: not shared_raspios_check.stat.exists
 
 - name: Detect downloaded file type
   ansible.builtin.command:

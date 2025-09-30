@@ -3,6 +3,7 @@
   vars_files:
     - secrets.yaml
   roles:
+    - k3s_common       # Must run first - downloads shared files and K3s binary
     - pxe_dhcp_tftp
     - nfs_roots
     - k3s_pi_servers

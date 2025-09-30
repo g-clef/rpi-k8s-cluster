@@ -1,7 +1,7 @@
 ---
 - name: Create ArgoCD applications directory
   file:
-    path: "{{ per_node_root_base }}/pi01/tmp/argocd-apps"
+    path: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/argocd-apps"
     state: directory
     mode: '0755'
   become: true
@@ -9,7 +9,7 @@
 - name: Generate ArgoCD application manifests
   template:
     src: argocd-application.yaml.j2
-    dest: "{{ per_node_root_base }}/pi01/tmp/argocd-apps/{{ item.name }}-app.yaml"
+    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/argocd-apps/{{ item.name }}-app.yaml"
     mode: '0644'
   loop: "{{ argocd_applications | default([]) }}"
   become: true
@@ -17,7 +17,7 @@
 - name: Create GitHub repository secret template
   template:
     src: github-repo-secret.yaml.j2
-    dest: "{{ per_node_root_base }}/pi01/tmp/argocd-apps/github-repo-secret.yaml"
+    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/argocd-apps/github-repo-secret.yaml"
     mode: '0644'
   become: true
   when: github_token is defined
@@ -25,14 +25,17 @@
 - name: Create ArgoCD configuration script
   template:
     src: configure-argocd.sh.j2
-    dest: "{{ per_node_root_base }}/pi01/tmp/configure-argocd.sh"
+    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/configure-argocd.sh"
     mode: '0755'
   become: true
 
-- name: Create ArgoCD configuration systemd service
-  copy:
-    dest: "{{ per_node_root_base }}/pi01/etc/systemd/system/argocd-config.service"
-    content: |
+- name: Create and enable ArgoCD systemd service
+  ansible.builtin.include_role:
+    name: systemd_helper
+  vars:
+    target_hostname: "{{ hostvars[groups['pi_servers'][0]].hostname }}"
+    service_name: "argocd-config"
+    service_content: |
       [Unit]
       Description=Configure ArgoCD Applications
       After=firstboot-ops.service
@@ -45,12 +48,3 @@
 
       [Install]
       WantedBy=multi-user.target
-    mode: '0644'
-  become: true
-
-- name: Enable ArgoCD configuration service
-  file:
-    src: ../argocd-config.service
-    dest: "{{ per_node_root_base }}/pi01/etc/systemd/system/multi-user.target.wants/argocd-config.service"
-    state: link
-  become: true
