@@ -281,7 +281,7 @@
       ignore_errors: true
 
     - name: Extract armstub8-gic.bin from downloaded package
-      ansible.builtin.shell: |\
+      ansible.builtin.shell: |
         cd {{ work_dir }}
         ar x raspi-firmware.deb data.tar.xz
         tar -xf data.tar.xz ./boot/armstub8-gic.bin --strip-components=1
