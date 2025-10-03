@@ -1,0 +1,25 @@
+---
+# roles/systemd_helper/tasks/main.yaml
+# Reusable tasks for systemd service management
+
+- name: Create systemd service file
+  ansible.builtin.copy:
+    dest: "{{ per_node_root_base }}/{{ target_hostname }}/etc/systemd/system/{{ service_name }}.service"
+    content: "{{ service_content }}"
+    mode: '0644'
+  become: true
+
+- name: Ensure systemd wants directory exists
+  ansible.builtin.file:
+    path: "{{ per_node_root_base }}/{{ target_hostname }}/etc/systemd/system/multi-user.target.wants"
+    state: directory
+    mode: "0755"
+  become: true
+
+- name: Enable systemd service (create wants symlink)
+  ansible.builtin.file:
+    state: link
+    path: "{{ per_node_root_base }}/{{ target_hostname }}/etc/systemd/system/multi-user.target.wants/{{ service_name }}.service"
+    src: "../{{ service_name }}.service"
+    force: true
+  become: true

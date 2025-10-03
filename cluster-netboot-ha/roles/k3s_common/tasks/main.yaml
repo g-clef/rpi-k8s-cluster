@@ -1,0 +1,106 @@
+---
+# roles/k3s_common/tasks/main.yaml
+# Shared tasks for K3s installation and common downloads
+
+- name: Ensure required packages are installed
+  ansible.builtin.package:
+    name:
+      - curl
+      - wget
+    state: present
+  become: true
+
+- name: Ensure work directory exists
+  ansible.builtin.file:
+    path: "{{ work_dir }}"
+    state: directory
+    mode: "0755"
+  become: true
+
+# Download Raspberry Pi OS image once (shared by both pxe_dhcp_tftp and nfs_roots)
+- name: Download Raspberry Pi OS image (shared download)
+  ansible.builtin.get_url:
+    url: "{{ raspios_url }}"
+    dest: "{{ work_dir }}/{{ raspios_url | basename }}"
+    mode: "0644"
+    force: false
+    timeout: 1800
+    tmp_dest: "{{ work_dir }}"
+  register: raspios_dl
+  retries: 5
+  delay: 15
+  until: raspios_dl is succeeded
+
+- name: Detect downloaded file type
+  ansible.builtin.command:
+    cmd: file -b --mime-type "{{ work_dir }}/{{ raspios_url | basename }}"
+  register: raspios_mime
+  changed_when: false
+
+- name: Abort if we fetched an HTML/text page instead of an archive
+  ansible.builtin.fail:
+    msg: >-
+      Downloaded {{ raspios_url | basename }} is {{ raspios_mime.stdout }},
+      which suggests a bad URL or network/auth issue. Check raspios_url.
+  when: raspios_mime.stdout in ['text/html', 'text/plain']
+
+# Download K3s binary for all nodes
+- name: Download K3s binary
+  ansible.builtin.get_url:
+    url: "https://github.com/k3s-io/k3s/releases/download/{{ k3s_version }}/k3s-arm64"
+    dest: "{{ work_dir }}/k3s-arm64"
+    mode: "0755"
+    force: false
+    timeout: 600
+  register: k3s_dl
+  retries: 3
+  delay: 10
+  until: k3s_dl is succeeded
+
+# Install K3s binary to all Pi node roots
+- name: Install K3s binary to server node roots
+  ansible.builtin.copy:
+    src: "{{ work_dir }}/k3s-arm64"
+    dest: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/usr/local/bin/k3s"
+    mode: "0755"
+    owner: root
+    group: root
+    remote_src: true
+  loop: "{{ groups['pi_servers'] | default([]) }}"
+  loop_control:
+    label: "{{ hostvars[item].hostname }}"
+  become: true
+
+- name: Install K3s binary to agent node roots
+  ansible.builtin.copy:
+    src: "{{ work_dir }}/k3s-arm64"
+    dest: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/usr/local/bin/k3s"
+    mode: "0755"
+    owner: root
+    group: root
+    remote_src: true
+  loop: "{{ groups['pi_agents'] | default([]) }}"
+  loop_control:
+    label: "{{ hostvars[item].hostname }}"
+  become: true
+
+# Ensure /usr/local/bin directories exist in all Pi node roots
+- name: Ensure /usr/local/bin exists in server node roots
+  ansible.builtin.file:
+    path: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/usr/local/bin"
+    state: directory
+    mode: "0755"
+  loop: "{{ groups['pi_servers'] | default([]) }}"
+  loop_control:
+    label: "{{ hostvars[item].hostname }}"
+  become: true
+
+- name: Ensure /usr/local/bin exists in agent node roots
+  ansible.builtin.file:
+    path: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/usr/local/bin"
+    state: directory
+    mode: "0755"
+  loop: "{{ groups['pi_agents'] | default([]) }}"
+  loop_control:
+    label: "{{ hostvars[item].hostname }}"
+  become: true
