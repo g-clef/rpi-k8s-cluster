@@ -547,27 +547,30 @@
 
     - name: Count successful file installations
       ansible.builtin.set_fact:
-        netboot_files_present: "{{ final_files_check.results | selectattr('stat.exists') | list | length }}"
-        netboot_files_total: "{{ final_files_check.results | length }}"
+        netboot_files_present: "{{ final_files_check.results | selectattr('stat.exists') | list | length | int }}"
+        netboot_files_total: "{{ final_files_check.results | length | int }}"
+        netboot_minimum_threshold: "{{ ((final_files_check.results | length | int * 4) / 5) | int }}"  # 80% threshold using integer math
 
     - name: Display netboot setup summary
       ansible.builtin.debug:
         msg: |
           Raspberry Pi Netboot Setup Summary:
           - Files present: {{ netboot_files_present }}/{{ netboot_files_total }}
+          - Minimum required: {{ netboot_minimum_threshold }}
           - TFTP root: {{ tftp_root }}
           - DHCP/TFTP service: dnsmasq (running)
           - Network interface: {{ net_iface }}
           - DHCP range: {{ dhcp_start }}-{{ dhcp_end }}
-          
+
           Setup is {{ 'COMPLETE' if netboot_files_present == netboot_files_total else 'INCOMPLETE' }}
           {{ 'All Raspberry Pi nodes should now be able to netboot successfully.' if netboot_files_present == netboot_files_total else 'Some files are missing - check logs above for details.' }}
 
     - name: Fail if critical files are missing
       ansible.builtin.fail:
         msg: |
-          Netboot setup incomplete: {{ netboot_files_total - netboot_files_present }} files missing.
+          Netboot setup incomplete: {{ netboot_files_total | int - netboot_files_present | int }} files missing.
+          Only {{ netboot_files_present }} of {{ netboot_files_total }} files present (minimum {{ netboot_minimum_threshold }} required).
           This will prevent Raspberry Pi nodes from booting successfully.
           Check the download errors above and network connectivity.
-      when: netboot_files_present < ((netboot_files_total * 0.8) | int)  # Allow some non-critical files to be missing
+      when: netboot_files_present | int < netboot_minimum_threshold | int
   become: true
