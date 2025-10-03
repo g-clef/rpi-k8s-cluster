@@ -246,7 +246,7 @@
 
     - name: Download armstub8-gic.bin from primary source if still missing
       ansible.builtin.get_url:
-        url: "https://raw.githubusercontent.com/raspberrypi/firmware/master/boot/armstub8-gic.bin"
+        url: "https://github.com/raspberrypi/firmware/raw/master/boot/armstub8-gic.bin"
         dest: "{{ tftp_root }}/armstub8-gic.bin"
         mode: "0644"
         force: false
@@ -261,23 +261,37 @@
       when: not firmware_armstub8.stat.exists
       ignore_errors: true
 
-    - name: Download armstub8-gic.bin from versioned fallback source if primary fails
+    - name: Download armstub8-gic.bin from alternative source if primary fails
       ansible.builtin.get_url:
-        url: "https://raw.githubusercontent.com/raspberrypi/firmware/1.20231023/boot/armstub8-gic.bin"
-        dest: "{{ tftp_root }}/armstub8-gic.bin"
+        url: "https://archive.raspberrypi.org/debian/pool/main/r/raspi-firmware/raspi-firmware_1.20231025-1_armhf.deb"
+        dest: "{{ work_dir }}/raspi-firmware.deb"
         mode: "0644"
         force: false
         timeout: 300
         headers:
           User-Agent: "ansible-netboot-setup/1.0"
-      register: armstub_download_fallback
+      register: armstub_package_download
       retries: 3
       delay: 5
-      until: armstub_download_fallback is succeeded
+      until: armstub_package_download is succeeded
       become: true
       when: 
         - not firmware_armstub8.stat.exists
         - armstub_download_primary is failed
+      ignore_errors: true
+
+    - name: Extract armstub8-gic.bin from downloaded package
+      ansible.builtin.shell: |\
+        cd {{ work_dir }}
+        ar x raspi-firmware.deb data.tar.xz
+        tar -xf data.tar.xz ./boot/armstub8-gic.bin --strip-components=1
+        cp armstub8-gic.bin {{ tftp_root }}/
+        rm -f data.tar.xz raspi-firmware.deb armstub8-gic.bin
+      become: true
+      when: 
+        - not firmware_armstub8.stat.exists
+        - armstub_download_primary is failed
+        - armstub_package_download is succeeded
       ignore_errors: true
 
     - name: Final fallback - create dummy armstub8-gic.bin if all else fails
