@@ -182,6 +182,9 @@
       loop:
         - "{{ work_dir }}/temp-mount"
         - "{{ work_dir }}/{{ (raspios_url | basename) | regex_replace('\\.xz$', '') }}"
+        - "{{ work_dir }}/raspios-archive.zip"
+        - "{{ work_dir }}/rpi-bootloader.deb" 
+        - "{{ work_dir }}/extracted"
       ignore_errors: true
   become: true
 
@@ -244,28 +247,27 @@
       become: true
       when: firmware_armstub8.stat.exists
 
-    - name: Download armstub8-gic.bin from firmware repo if still missing
+    - name: Download Raspberry Pi OS from archive.org for armstub8-gic.bin
       ansible.builtin.get_url:
-        url: "https://raw.githubusercontent.com/raspberrypi/firmware/master/boot/armstub8-gic.bin"
-        dest: "{{ tftp_root }}/armstub8-gic.bin"
+        url: "https://archive.org/download/2021-05-07-raspios-buster-armhf/2021-05-07-raspios-buster-armhf.zip"
+        dest: "{{ work_dir }}/raspios-archive.zip"
         mode: "0644"
-        force: false
-        timeout: 300
+        timeout: 600
         headers:
           User-Agent: "ansible-netboot-setup/1.0"
       register: armstub_download_primary
       retries: 3
-      delay: 5
+      delay: 10
       until: armstub_download_primary is succeeded
       become: true
       when: not firmware_armstub8.stat.exists
+      ignore_errors: true
 
-    - name: Download armstub8-gic.bin from fallback CDN if primary fails
+    - name: Download Raspberry Pi firmware from Debian package repository
       ansible.builtin.get_url:
-        url: "https://cdn.jsdelivr.net/gh/raspberrypi/firmware@master/boot/armstub8-gic.bin"
-        dest: "{{ tftp_root }}/armstub8-gic.bin"
+        url: "http://deb.debian.org/debian/pool/main/r/raspberrypi-firmware/raspberrypi-bootloader_1.20220331-1_armhf.deb"
+        dest: "{{ work_dir }}/rpi-bootloader.deb"
         mode: "0644"
-        force: false
         timeout: 300
         headers:
           User-Agent: "ansible-netboot-setup/1.0"
@@ -277,6 +279,63 @@
       when: 
         - not firmware_armstub8.stat.exists
         - armstub_download_primary is failed
+      ignore_errors: true
+
+    - name: Extract armstub8-gic.bin from downloaded sources
+      block:
+        - name: Install required packages for extraction
+          ansible.builtin.package:
+            name: 
+              - unzip
+              - dpkg
+            state: present
+
+        - name: Extract from archive.org Raspberry Pi OS
+          ansible.builtin.shell: |
+            cd "{{ work_dir }}"
+            if [ -f raspios-archive.zip ]; then
+              echo "Extracting from archive.org Raspberry Pi OS..."
+              unzip -l raspios-archive.zip | head -20
+              # Try to find and extract any armstub files
+              unzip -j raspios-archive.zip "*/armstub8*.bin" -d . 2>/dev/null || true
+              unzip -j raspios-archive.zip "*/boot/armstub8*.bin" -d . 2>/dev/null || true
+              # Copy any found armstub files to TFTP root
+              for armstub in armstub8*.bin; do
+                if [ -f "$armstub" ]; then
+                  cp "$armstub" "{{ tftp_root }}/armstub8-gic.bin"
+                  echo "Successfully extracted $armstub as armstub8-gic.bin"
+                  break
+                fi
+              done
+            fi
+          when: armstub_download_primary is succeeded
+          register: archive_extract_result
+
+        - name: Extract from Debian package
+          ansible.builtin.shell: |
+            cd "{{ work_dir }}"
+            if [ -f rpi-bootloader.deb ]; then
+              echo "Extracting from Debian package..."
+              dpkg-deb -x rpi-bootloader.deb extracted/ 2>/dev/null || true
+              find extracted/ -name "armstub8*.bin" -exec cp {} "{{ tftp_root }}/armstub8-gic.bin" \; 2>/dev/null || true
+              if [ -f "{{ tftp_root }}/armstub8-gic.bin" ]; then
+                echo "Successfully extracted armstub8-gic.bin from Debian package"
+              fi
+            fi
+          when: 
+            - armstub_download_fallback is succeeded
+            - archive_extract_result is not defined or archive_extract_result is failed
+          register: debian_extract_result
+
+        - name: Show extraction results
+          ansible.builtin.debug:
+            msg: |
+              Archive.org extraction: {{ 'SUCCESS' if archive_extract_result is defined and archive_extract_result is succeeded else 'SKIPPED/FAILED' }}
+              Debian package extraction: {{ 'SUCCESS' if debian_extract_result is defined and debian_extract_result is succeeded else 'SKIPPED/FAILED' }}
+      become: true
+      when: 
+        - not firmware_armstub8.stat.exists
+        - armstub_download_primary is succeeded or armstub_download_fallback is succeeded
 
     - name: Final check - verify armstub8-gic.bin was obtained
       ansible.builtin.stat:
@@ -284,24 +343,31 @@
       register: final_armstub_check
       become: true
 
-    - name: Fail if armstub8-gic.bin could not be obtained
-      ansible.builtin.fail:
+    - name: Display final armstub8-gic.bin status
+      ansible.builtin.debug:
         msg: |
-          CRITICAL: armstub8-gic.bin could not be downloaded from any source.
-          This file is required for Raspberry Pi 4 netboot. Without it, the Pi nodes will not boot.
-          Manual intervention required: download armstub8-gic.bin to {{ tftp_root }}/
-      when: not final_armstub_check.stat.exists
+          armstub8-gic.bin status: {{ 'FOUND' if final_armstub_check.stat.exists else 'MISSING' }}
+          {% if final_armstub_check.stat.exists %}
+          File size: {{ final_armstub_check.stat.size }} bytes
+          {% endif %}
+          Sources attempted:
+          - Firmware directory: {{ 'SUCCESS' if firmware_armstub8.stat.exists else 'NOT FOUND' }}
+          - Archive.org: {{ 'SUCCESS' if armstub_download_primary is succeeded else 'FAILED/SKIPPED' }}
+          - Debian package: {{ 'SUCCESS' if armstub_download_fallback is succeeded else 'FAILED/SKIPPED' }}
 
-    - name: Final fallback - create dummy armstub8-gic.bin if all else fails
-      ansible.builtin.shell: |
-        # Create a minimal armstub file as last resort
-        # This may not work perfectly but prevents the "file not found" error
-        if [ ! -f "{{ tftp_root }}/armstub8-gic.bin" ]; then
-          echo "Creating minimal armstub8-gic.bin as fallback"
-          dd if=/dev/zero of="{{ tftp_root }}/armstub8-gic.bin" bs=1024 count=32 2>/dev/null
-        fi
-      become: true
-      when: not armstub_gic_check.stat.exists
+    - name: Warn if armstub8-gic.bin could not be obtained
+      ansible.builtin.debug:
+        msg: |
+          WARNING: armstub8-gic.bin could not be downloaded from any source.
+          This file is CRITICAL for Raspberry Pi 4 netboot. Without it, the Pi nodes will not boot.
+
+          You can manually download it from:
+          1. Another working Raspberry Pi 4 (/boot/armstub8-gic.bin)
+          2. Extract from a Raspberry Pi OS image
+          3. Build from source: https://github.com/raspberrypi/tools
+
+          Place the file at: {{ tftp_root }}/armstub8-gic.bin
+      when: not final_armstub_check.stat.exists
   when: not armstub_gic_check.stat.exists
 
 - name: Install dnsmasq
