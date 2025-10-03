@@ -100,13 +100,18 @@
 
     - name: Get boot partition offset
       ansible.builtin.shell: |
-        fdisk -l {{ work_dir }}/{{ (raspios_url | basename) | regex_replace('\\.xz$', '') }} | grep "\.img1" | awk '{print $2 * 512}'
+        fdisk -l {{ work_dir }}/{{ (raspios_url | basename) | regex_replace('\.xz$', '') }} | grep "\.img1" | awk '{print $2 * 512}'
       register: boot_offset
+
+    - name: Debug boot offset calculation
+      ansible.builtin.debug:
+        msg: "Boot offset calculated: {{ boot_offset.stdout }}"
 
     - name: Mount boot partition to extract critical files
       ansible.builtin.shell: |
-        mount -o loop,offset={{ boot_offset.stdout }} {{ work_dir }}/{{ (raspios_url | basename) | regex_replace('\\.xz$', '') }} {{ work_dir }}/temp-mount
+        mount -o loop,offset={{ boot_offset.stdout }} {{ work_dir }}/{{ (raspios_url | basename) | regex_replace('\.xz$', '') }} {{ work_dir }}/temp-mount
       become: true
+      when: boot_offset.stdout != ""
 
     - name: List available files in Pi OS boot partition for debugging
       ansible.builtin.shell: "ls -la {{ work_dir }}/temp-mount/ | head -20"
