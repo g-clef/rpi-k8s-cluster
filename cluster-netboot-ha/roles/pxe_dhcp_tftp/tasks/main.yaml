@@ -100,12 +100,12 @@
 
     - name: Get boot partition offset
       ansible.builtin.shell: |
-        fdisk -l {{ work_dir }}/{{ (raspios_url | basename) | regex_replace('\.xz$', '') }} | grep "\.img1" | awk '{print $2 * 512}'
+        fdisk -l {{ work_dir }}/{{ (raspios_url | basename) | regex_replace('\\.xz$', '') }} | grep "\.img1" | awk '{print $2 * 512}'
       register: boot_offset
 
     - name: Mount boot partition to extract critical files
       ansible.builtin.shell: |
-        mount -o loop,offset={{ boot_offset.stdout }} {{ work_dir }}/{{ (raspios_url | basename) | regex_replace('\.xz$', '') }} {{ work_dir }}/temp-mount
+        mount -o loop,offset={{ boot_offset.stdout }} {{ work_dir }}/{{ (raspios_url | basename) | regex_replace('\\.xz$', '') }} {{ work_dir }}/temp-mount
       become: true
 
     - name: List available files in Pi OS boot partition for debugging
@@ -176,7 +176,7 @@
         state: absent
       loop:
         - "{{ work_dir }}/temp-mount"
-        - "{{ work_dir }}/{{ (raspios_url | basename) | regex_replace('\.xz$', '') }}"
+        - "{{ work_dir }}/{{ (raspios_url | basename) | regex_replace('\\.xz$', '') }}"
       ignore_errors: true
   become: true
 
