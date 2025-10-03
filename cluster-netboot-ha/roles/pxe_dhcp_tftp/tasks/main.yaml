@@ -569,5 +569,5 @@
           Netboot setup incomplete: {{ netboot_files_total - netboot_files_present }} files missing.
           This will prevent Raspberry Pi nodes from booting successfully.
           Check the download errors above and network connectivity.
-      when: netboot_files_present < (netboot_files_total * 0.8)  # Allow some non-critical files to be missing
+      when: netboot_files_present < ((netboot_files_total * 0.8) | int)  # Allow some non-critical files to be missing
   become: true
