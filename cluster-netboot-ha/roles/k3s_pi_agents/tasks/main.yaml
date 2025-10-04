@@ -1,12 +1,12 @@
 ---
-# Install k3s-agent service using systemd_helper
-- name: Install k3s-agent service
+# Install k3s service for all agents
+- name: Install k3s service for all agents
   ansible.builtin.include_role:
     name: systemd_helper
   vars:
     target_hostname: "{{ hostvars[item].hostname }}"
-    service_name: "k3s-agent"
-    service_content: "{{ lookup('template','k3s-agent.service.j2') }}"
+    service_name: "k3s"
+    service_content: "{{ lookup('template', '../k3s_common/templates/k3s.service.j2') }}"
   loop: "{{ groups['pi_agents'] | default([]) }}"
   loop_control:
     label: "{{ hostvars[item].hostname }}"

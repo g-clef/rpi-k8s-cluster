@@ -57,50 +57,48 @@
   delay: 10
   until: k3s_dl is succeeded
 
-# Install K3s binary to all Pi node roots
-- name: Install K3s binary to server node roots
-  ansible.builtin.copy:
-    src: "{{ work_dir }}/k3s-arm64"
-    dest: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/usr/local/bin/k3s"
-    mode: "0755"
-    owner: root
-    group: root
-    remote_src: true
-  loop: "{{ groups['pi_servers'] | default([]) }}"
-  loop_control:
-    label: "{{ hostvars[item].hostname }}"
-  become: true
-
-- name: Install K3s binary to agent node roots
-  ansible.builtin.copy:
-    src: "{{ work_dir }}/k3s-arm64"
-    dest: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/usr/local/bin/k3s"
-    mode: "0755"
-    owner: root
-    group: root
-    remote_src: true
-  loop: "{{ groups['pi_agents'] | default([]) }}"
-  loop_control:
-    label: "{{ hostvars[item].hostname }}"
-  become: true
-
 # Ensure /usr/local/bin directories exist in all Pi node roots
-- name: Ensure /usr/local/bin exists in server node roots
+- name: Ensure /usr/local/bin exists in all Pi node roots
   ansible.builtin.file:
     path: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/usr/local/bin"
     state: directory
     mode: "0755"
-  loop: "{{ groups['pi_servers'] | default([]) }}"
+  loop: "{{ (groups['pi_servers'] + groups['pi_agents']) | default([]) }}"
   loop_control:
     label: "{{ hostvars[item].hostname }}"
   become: true
 
-- name: Ensure /usr/local/bin exists in agent node roots
-  ansible.builtin.file:
-    path: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/usr/local/bin"
-    state: directory
+# Install K3s binary to all Pi node roots
+- name: Install K3s binary to all Pi node roots
+  ansible.builtin.copy:
+    src: "{{ work_dir }}/k3s-arm64"
+    dest: "{{ per_node_root_base }}/{{ hostvars[item].hostname }}/usr/local/bin/k3s"
     mode: "0755"
-  loop: "{{ groups['pi_agents'] | default([]) }}"
+    owner: root
+    group: root
+    remote_src: true
+  loop: "{{ (groups['pi_servers'] + groups['pi_agents']) | default([]) }}"
   loop_control:
     label: "{{ hostvars[item].hostname }}"
+  become: true
+
+# Add cluster readiness verification script
+- name: Create cluster readiness check script
+  copy:
+    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/usr/local/bin/wait-for-cluster"
+    content: |
+      #!/bin/bash
+      # Wait for K3s cluster to be ready
+      echo "Waiting for K3s cluster to be ready..."
+      for i in $(seq 1 120); do
+        if /usr/local/bin/k3s kubectl get nodes >/dev/null 2>&1; then
+          echo "Cluster is ready!"
+          exit 0
+        fi
+        echo "Waiting... (attempt $i/120)"
+        sleep 10
+      done
+      echo "Cluster failed to become ready within timeout"
+      exit 1
+    mode: '0755'
   become: true

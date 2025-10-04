@@ -1,66 +1,13 @@
 ---
-- name: Create MinIO namespace
-  copy:
-    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/minio-namespace.yaml"
-    content: |
-      apiVersion: v1
-      kind: Namespace
-      metadata:
-        name: minio-system
-    mode: '0644'
-  become: true
-
-- name: Create MinIO deployment manifest
-  template:
-    src: minio-deployment.yaml.j2
-    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/minio-deployment.yaml"
-    mode: '0644'
-  become: true
-
-- name: Create MinIO service manifest
-  template:
-    src: minio-service.yaml.j2
-    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/minio-service.yaml"
-    mode: '0644'
-  become: true
-
-- name: Create MinIO installation script
-  copy:
-    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/install-minio.sh"
-    content: |
-      #!/bin/bash
-      set -e
-
-      # Wait for k3s to be ready
-      for i in $(seq 1 60); do
-        /usr/local/bin/k3s kubectl get nodes && break || sleep 10
-      done
-
-      echo "Installing MinIO S3 Gateway..."
-      /usr/local/bin/k3s kubectl apply -f /tmp/minio-namespace.yaml
-      /usr/local/bin/k3s kubectl apply -f /tmp/minio-deployment.yaml
-      /usr/local/bin/k3s kubectl apply -f /tmp/minio-service.yaml
-
-      echo "MinIO installation complete"
-    mode: '0755'
-  become: true
-
-- name: Create and enable MinIO systemd service
+- name: Deploy MinIO using k8s_deployment_manager
   ansible.builtin.include_role:
-    name: systemd_helper
+    name: k8s_deployment_manager
   vars:
-    target_hostname: "{{ hostvars[groups['pi_servers'][0]].hostname }}"
-    service_name: "minio-install"
-    service_content: |
-      [Unit]
-      Description=Install MinIO S3 Gateway
-      After=k3s.service
-      Requires=k3s.service
-
-      [Service]
-      Type=oneshot
-      ExecStart=/tmp/install-minio.sh
-      RemainAfterExit=yes
-
-      [Install]
-      WantedBy=multi-user.target
+    deployment_name: "minio"
+    deployment_namespace: "minio-system"
+    manifests:
+      - name: "minio-deployment"
+        content: "{{ lookup('template', 'minio-deployment.yaml.j2') }}"
+      - name: "minio-service"
+        content: "{{ lookup('template', 'minio-service.yaml.j2') }}"
+    depends_on_service: "k3s.service"

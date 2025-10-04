@@ -1,21 +1,13 @@
 ---
-# Install k3s-server service files
-- name: Install k3s-server unit for pi01 (cluster-init)
-  ansible.builtin.include_role:
-    name: systemd_helper
-  vars:
-    target_hostname: "{{ hostvars[groups['pi_servers'][0]].hostname }}"
-    service_name: "k3s-server"
-    service_content: "{{ lookup('template','k3s-server.service.first.j2') }}"
-
-- name: Install k3s-server unit for joining servers
+# Install k3s service files for all servers
+- name: Install k3s service for all servers
   ansible.builtin.include_role:
     name: systemd_helper
   vars:
     target_hostname: "{{ hostvars[item].hostname }}"
-    service_name: "k3s-server"
-    service_content: "{{ lookup('template','k3s-server.service.join.j2') }}"
-  loop: "{{ groups['pi_servers'] | difference([groups['pi_servers'][0]]) }}"
+    service_name: "k3s"
+    service_content: "{{ lookup('template', '../k3s_common/templates/k3s.service.j2') }}"
+  loop: "{{ groups['pi_servers'] | default([]) }}"
   loop_control:
     label: "{{ hostvars[item].hostname }}"
 

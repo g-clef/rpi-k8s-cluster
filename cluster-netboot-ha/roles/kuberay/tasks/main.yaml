@@ -1,41 +1,11 @@
 ---
-- name: Create KubeRay manifests directory
-  file:
-    path: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/kuberay"
-    state: directory
-    mode: '0755'
-  become: true
-
-- name: Create KubeRay operator manifest
-  template:
-    src: kuberay-operator.yaml.j2
-    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/kuberay/kuberay-operator.yaml"
-    mode: '0644'
-  become: true
-
-- name: Create KubeRay operator installation script
-  template:
-    src: install-kuberay-operator.sh.j2
-    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/install-kuberay-operator.sh"
-    mode: '0755'
-  become: true
-
-- name: Create and enable KubeRay systemd service
+- name: Deploy KubeRay using k8s_deployment_manager
   ansible.builtin.include_role:
-    name: systemd_helper
+    name: k8s_deployment_manager
   vars:
-    target_hostname: "{{ hostvars[groups['pi_servers'][0]].hostname }}"
-    service_name: "kuberay-operator-install"
-    service_content: |
-      [Unit]
-      Description=Install KubeRay Operator
-      After=firstboot-ops.service
-      Requires=firstboot-ops.service
-
-      [Service]
-      Type=oneshot
-      ExecStart=/tmp/install-kuberay-operator.sh
-      RemainAfterExit=yes
-
-      [Install]
-      WantedBy=multi-user.target
+    deployment_name: "kuberay"
+    manifests:
+      - name: "kuberay-operator"
+        content: "{{ lookup('template', 'kuberay-operator.yaml.j2') }}"
+    install_script_content: "{{ lookup('template', 'install-kuberay-operator.sh.j2') | regex_replace('^#!/bin/bash.*?echo \"Installing.*?\"', '') | regex_replace('echo \".*installation complete\"$', '') }}"
+    depends_on_service: "firstboot-ops.service"

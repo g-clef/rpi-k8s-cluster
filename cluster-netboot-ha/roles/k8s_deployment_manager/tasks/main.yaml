@@ -1,0 +1,72 @@
+---
+# Generic Kubernetes deployment manager
+# Handles manifest creation, script generation, and systemd service setup
+
+- name: Create deployment manifests directory
+  file:
+    path: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/{{ deployment_name }}"
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Create deployment manifests
+  copy:
+    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/{{ deployment_name }}/{{ item.name }}.yaml"
+    content: "{{ item.content }}"
+    mode: '0644'
+  loop: "{{ manifests }}"
+  become: true
+  when: manifests is defined and manifests | length > 0
+
+- name: Create deployment installation script
+  copy:
+    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/install-{{ deployment_name }}.sh"
+    content: |
+      #!/bin/bash
+      set -e
+
+      {% if cluster_readiness_check %}
+      # Wait for k3s to be ready
+      echo "Waiting for cluster to be ready..."
+      for i in $(seq 1 60); do
+        /usr/local/bin/k3s kubectl get nodes >/dev/null 2>&1 && break || sleep 10
+      done
+      {% endif %}
+
+      echo "Installing {{ deployment_name | title }}..."
+      
+      {% if deployment_namespace %}
+      # Create namespace if specified
+      /usr/local/bin/k3s kubectl create namespace {{ deployment_namespace }} --dry-run=client -o yaml | /usr/local/bin/k3s kubectl apply -f -
+      {% endif %}
+
+      # Apply manifests
+      {% for manifest in manifests %}
+      /usr/local/bin/k3s kubectl apply {% if deployment_namespace %}-n {{ deployment_namespace }}{% endif %} -f /tmp/{{ deployment_name }}/{{ manifest.name }}.yaml
+      {% endfor %}
+
+      {{ install_script_content }}
+
+      echo "{{ deployment_name | title }} installation complete"
+    mode: '0755'
+  become: true
+
+- name: Create and enable deployment systemd service
+  ansible.builtin.include_role:
+    name: systemd_helper
+  vars:
+    target_hostname: "{{ hostvars[groups['pi_servers'][0]].hostname }}"
+    service_name: "{{ deployment_name }}-install"
+    service_content: |
+      [Unit]
+      Description=Install {{ deployment_name | title }}
+      After={{ depends_on_service }}
+      Requires={{ depends_on_service }}
+
+      [Service]
+      Type=oneshot
+      ExecStart=/tmp/install-{{ deployment_name }}.sh
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target

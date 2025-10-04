@@ -1,0 +1,8 @@
+---
+# Default variables for k8s_deployment_manager role
+deployment_name: ""
+deployment_namespace: ""
+manifests: []
+install_script_content: ""
+cluster_readiness_check: true
+depends_on_service: "k3s.service"

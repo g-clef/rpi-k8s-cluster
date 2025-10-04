@@ -1,50 +1,20 @@
 ---
-- name: Create ArgoCD applications directory
-  file:
-    path: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/argocd-apps"
-    state: directory
-    mode: '0755'
-  become: true
-
-- name: Generate ArgoCD application manifests
-  template:
-    src: argocd-application.yaml.j2
-    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/argocd-apps/{{ item.name }}-app.yaml"
-    mode: '0644'
+- name: Prepare ArgoCD application manifests
+  set_fact:
+    argocd_manifests: "{{ argocd_manifests | default([]) + [{'name': item.name + '-app', 'content': lookup('template', 'argocd-application.yaml.j2')}] }}"
   loop: "{{ argocd_applications | default([]) }}"
-  become: true
 
-- name: Create GitHub repository secret template
-  template:
-    src: github-repo-secret.yaml.j2
-    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/argocd-apps/github-repo-secret.yaml"
-    mode: '0644'
-  become: true
+- name: Add GitHub secret manifest if token is defined
+  set_fact:
+    argocd_manifests: "{{ argocd_manifests + [{'name': 'github-repo-secret', 'content': lookup('template', 'github-repo-secret.yaml.j2')}] }}"
   when: github_token is defined
 
-- name: Create ArgoCD configuration script
-  template:
-    src: configure-argocd.sh.j2
-    dest: "{{ per_node_root_base }}/{{ hostvars[groups['pi_servers'][0]].hostname }}/tmp/configure-argocd.sh"
-    mode: '0755'
-  become: true
-
-- name: Create and enable ArgoCD systemd service
+- name: Deploy ArgoCD apps using k8s_deployment_manager
   ansible.builtin.include_role:
-    name: systemd_helper
+    name: k8s_deployment_manager
   vars:
-    target_hostname: "{{ hostvars[groups['pi_servers'][0]].hostname }}"
-    service_name: "argocd-config"
-    service_content: |
-      [Unit]
-      Description=Configure ArgoCD Applications
-      After=firstboot-ops.service
-      Requires=firstboot-ops.service
-
-      [Service]
-      Type=oneshot
-      ExecStart=/tmp/configure-argocd.sh
-      RemainAfterExit=yes
-
-      [Install]
-      WantedBy=multi-user.target
+    deployment_name: "argocd-apps"
+    deployment_namespace: "argocd"
+    manifests: "{{ argocd_manifests | default([]) }}"
+    install_script_content: "{{ lookup('template', 'configure-argocd.sh.j2') | regex_replace('^#!/bin/bash.*?echo \\\".*\\\"', '') | regex_replace('echo \\\".*complete\\\"$', '') }}"
+    depends_on_service: "firstboot-ops.service"
